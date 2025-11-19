@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import os  #
 
 intents = discord.Intents.default()
 intents.members = True
@@ -69,5 +70,4 @@ async def on_member_update(before, after):
 
             await channel.send(embed=embed, view=view)
 
-import os
 bot.run(os.getenv("TOKEN"))
