@@ -1,19 +1,17 @@
 import discord
-from discord.ext import commands
 import os
 
 intents = discord.Intents.default()
 intents.members = True
-intents.guilds = True
+intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = discord.Bot(intents=intents)
 
-# ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
-# CHANGE ONLY THESE THREE LINES WITH YOUR REAL VALUES
-WELCOME_CHANNEL_ID = 1207917070684004452                         # ← your welcome channel ID
-ROLE_TO_WATCH = 1217937235840598026                              # ← the role that triggers the button
-BIRTHDAY_FORM_LINK = "https://discord.com/channels/1205041211610501120/1435375785220243598"  # ← your birthday link
-# ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
+# ←←← CHANGE THESE (or move to variables later)
+WELCOME_CHANNEL_ID = 1207917070684004452
+ROLE_TO_WATCH = 1217937235840598026
+BIRTHDAY_FORM_LINK = "https://discord.com/channels/1205041211610501120/1435375785220243598"
+# ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
 
 @bot.event
 async def on_ready():
@@ -23,11 +21,7 @@ async def on_ready():
 async def on_member_join(member):
     channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if channel:
-        embed = discord.Embed(
-            title="Welcome to the server!",
-            description=f"Hey {member.mention}! We're thrilled to have you here!",
-            color=0x00ff88
-        )
+        embed = discord.Embed(title="Welcome!", description=f"Hey {member.mention}!", color=0x00ff88)
         embed.set_thumbnail(url=member.display_avatar.url)
         await channel.send(embed=embed)
 
@@ -37,35 +31,23 @@ async def on_member_update(before, after):
     if not channel:
         return
 
-    # Boost detection
+    # Boost
     if before.premium_since is None and after.premium_since is not None:
-        embed = discord.Embed(
-            title="Server Boost!",
-            description=f"Big thank you to {after.mention} for boosting the server!",
-            color=0xff73fa
-        )
-        embed.set_thumbnail(url=after.display_avatar.url)
+        embed = discord.Embed(title="Server Boost!", description=f"Thanks {after.mention}!", color=0xff73fa)
         await channel.send(embed=embed)
 
-    # Role + button detection
-    roles_added = set(after.roles) - set(before.roles)
-    for role in roles_added:
+    # Role added
+    new_roles = set(after.roles) - set(before.roles)
+    for role in new_roles:
         if role.id == ROLE_TO_WATCH:
             embed = discord.Embed(
-                title="New VIP Alert!",
-                description=f"{after.mention} just unlocked **{role.name}**!\nPlease add your birthday below so we can celebrate with you",
+                title="New VIP!",
+                description=f"{after.mention} just got **{role.name}**!\nAdd your birthday below 🎂",
                 color=role.color or 0x2b2d31
             )
             embed.set_thumbnail(url=after.display_avatar.url)
-
             view = discord.ui.View(timeout=None)
-            button = discord.ui.Button(
-                label="Add Your Birthday",
-                style=discord.ButtonStyle.secondary,
-                url=BIRTHDAY_FORM_LINK,
-                emoji="cake"
-            )
-            view.add_item(button)
+            view.add_item(discord.ui.Button(label="Add Your Birthday", style=discord.ButtonStyle.secondary, url=BIRTHDAY_FORM_LINK, emoji="cake"))
             await channel.send(embed=embed, view=view)
 
 bot.run(os.getenv("TOKEN"))
