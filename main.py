@@ -17,7 +17,8 @@ BOOST_TEXT   = os.getenv("BOOST_TEXT", "<:boost:1435140623714877460> @{mention} 
 VIP_TEXT     = os.getenv("VIP_TEXT", "<:pepopartycelebrate:1435089333567619163> It's @{mention}'s birthday! @everyone")
 
 BUTTON_LABEL = os.getenv("BUTTON_LABEL", "Add Your Birthday")
-BUTTON_EMOJI = os.getenv("BUTTON_EMOJI")  # ← leave empty or put a real emoji name like "cake"
+# ← safest possible emoji handling (no crash ever)
+BUTTON_EMOJI = os.getenv("BUTTON_EMOJI")  # leave completely empty in Railway if you want just the share-arrow icon
 # ───────────────────────────────────────────────────
 
 @bot.event
@@ -36,7 +37,7 @@ async def on_member_join(member):
                 label=BUTTON_LABEL,
                 style=discord.ButtonStyle.secondary,
                 url=BIRTHDAY_FORM_LINK,
-                emoji=BUTTON_EMOJI or None   # ← this fixes the crash when empty
+                emoji=BUTTON_EMOJI  # ← py-cord accepts empty string or None here
             )
         )
         await channel.send(msg, view=view)
