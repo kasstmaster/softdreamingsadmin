@@ -69,4 +69,4 @@ async def on_member_update(before, after):
 
             await channel.send(embed=embed, view=view)
 
-bot.run("YOUR_TOKEN_WILL_BE_ADDED_LATER_ON_RAILWAY")
+bot.run("TOKEN")
