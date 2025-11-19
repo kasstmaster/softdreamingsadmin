@@ -7,7 +7,7 @@ intents.message_content = True
 
 bot = discord.Bot(intents=intents)
 
-# ────────────────────── CONFIG (change in Railway Variables) ──────────────────────
+# ────────────────────── CONFIG ──────────────────────
 WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "1207917070684004452"))
 ROLE_TO_WATCH      = int(os.getenv("ROLE_TO_WATCH", "1217937235840598026"))
 BIRTHDAY_FORM_LINK = os.getenv("BIRTHDAY_FORM_LINK", "https://discord.com/channels/1205041211610501120/1435375785220243598")
@@ -17,8 +17,8 @@ BOOST_TEXT   = os.getenv("BOOST_TEXT", "<:boost:1435140623714877460> @{mention} 
 VIP_TEXT     = os.getenv("VIP_TEXT", "<:pepopartycelebrate:1435089333567619163> It's @{mention}'s birthday! @everyone")
 
 BUTTON_LABEL = os.getenv("BUTTON_LABEL", "Add Your Birthday")
-BUTTON_EMOJI = os.getenv("BUTTON_EMOJI", None)   # ← fixed: None with capital N, or "cake" if you want an emoji
-# ──────────────────────────────────────────────────────────────────────────────────
+BUTTON_EMOJI = os.getenv("BUTTON_EMOJI")  # ← leave empty or put a real emoji name like "cake"
+# ───────────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
@@ -29,13 +29,16 @@ async def on_member_join(member):
     channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if channel:
         msg = WELCOME_TEXT.replace("{mention}", member.mention)
+
         view = discord.ui.View(timeout=None)
-        view.add_item(discord.ui.Button(
-            label=BUTTON_LABEL,
-            style=discord.ButtonStyle.secondary,
-            url=BIRTHDAY_FORM_LINK,
-            emoji=BUTTON_EMOJI
-        ))
+        view.add_item(
+            discord.ui.Button(
+                label=BUTTON_LABEL,
+                style=discord.ButtonStyle.secondary,
+                url=BIRTHDAY_FORM_LINK,
+                emoji=BUTTON_EMOJI or None   # ← this fixes the crash when empty
+            )
+        )
         await channel.send(msg, view=view)
 
 @bot.event
@@ -49,7 +52,7 @@ async def on_member_update(before, after):
         msg = BOOST_TEXT.replace("{mention}", after.mention)
         await channel.send(msg)
 
-    # Birthday role added
+    # Birthday role
     new_roles = set(after.roles) - set(before.roles)
     for role in new_roles:
         if role.id == ROLE_TO_WATCH:
