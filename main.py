@@ -1,4 +1,4 @@
-import discord
+y_import discord
 import os
 
 intents = discord.Intents.default()
@@ -17,7 +17,7 @@ BOOST_TEXT   = os.getenv("BOOST_TEXT", "<:boost:1435140623714877460> @{mention} 
 VIP_TEXT     = os.getenv("VIP_TEXT", "<:pepopartycelebrate:1435089333567619163> It's @{mention}'s birthday! @everyone")
 
 BUTTON_LABEL = os.getenv("BUTTON_LABEL", "Add Your Birthday")
-BUTTON_EMOJI = os.getenv("BUTTON_EMOJI", "plus")
+BUTTON_EMOJI = os.getenv("BUTTON_EMOJI", "heavy_plus_sign")
 # ──────────────────────────────────────────────────────────────────────────────────
 
 @bot.event
