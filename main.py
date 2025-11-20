@@ -26,28 +26,26 @@ BUTTON_1_URL           = os.getenv("BUTTON_1_URL", "https://example.com")
 BUTTON_2_LABEL         = os.getenv("BUTTON_2_LABEL", "Other Movies/Shows")
 BUTTON_2_URL           = os.getenv("BUTTON_2_URL", "https://example.com")
 
-# ────────────────────── /say COMMAND (works in threads too) ──────────────────────
+# ────────────────────── /say COMMAND — NOW WITH WORKING AUTOCOMPLETE ──────────────────────
 @bot.slash_command(name="say", description="Send a message to any channel or thread")
 async def say(
     ctx,
-    destination: discord.Option(str, "Channel or thread (mention or link)", required=True),
+    destination: discord.Option(
+        discord.TextChannel,  # this gives real autocomplete for text channels + threads
+        "Channel or thread to send to",
+        required=True
+    ),
     message: discord.Option(str, "Message to send", required=True)
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator.", ephemeral=True)
 
-    match = discord.utils.find(lambda x: x.isdigit(), destination.split())
-    if not match:
-        return await ctx.respond("Couldn't find channel/thread ID. Mention it or paste link.", ephemeral=True)
+    # destination is now a real channel/thread object thanks to the option type above
+    if not destination.permissions_for(ctx.guild.me).send_messages:
+        return await ctx.respond("I don't have permission to send messages there.", ephemeral=True)
 
-    channel_id = int(match)
-    channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
-
-    if not channel or not isinstance(channel, (discord.TextChannel, discord.Thread)):
-        return await ctx.respond("Not a valid text channel or thread.", ephemeral=True)
-
-    await channel.send(message)
-    await ctx.respond(f"Sent to {channel.mention}!", ephemeral=True)
+    await destination.send(message)
+    await ctx.respond(f"Sent to {destination.mention}!", ephemeral=True)
 
 # ────────────────────── EVENTS ──────────────────────
 @bot.event
