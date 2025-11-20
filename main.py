@@ -11,14 +11,12 @@ intents.voice_states = True
 bot = discord.Bot(intents=intents)
 
 # ────────────────────── CONFIG ──────────────────────
-WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "1207917070684004452"))
-ROLE_TO_WATCH = int(os.getenv("ROLE_TO_WATCH", "1217937235840598026"))
-BIRTHDAY_FORM_LINK = os.getenv("BIRTHDAY_FORM_LINK", "https://discord.com/channels/1205041211610501120/1435375785220243598")
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
+ROLE_TO_WATCH = int(os.getenv("ROLE_TO_WATCH"))
 
 WELCOME_TEXT = os.getenv("WELCOME_TEXT", "<:welcome:1435084504950640690> @{mention} just joined the server!")
 BOOST_TEXT   = os.getenv("BOOST_TEXT", "<:boost:1435140623714877460> @{mention} just boosted the server!")
 VIP_TEXT     = os.getenv("VIP_TEXT", "<a:pepebirthday:1296553298895310971> It's @{mention}'s birthday!\n-# @everyone")
-BUTTON_LABEL = os.getenv("BUTTON_LABEL", "Add Your Birthday")
 
 STATUS_VC_ID          = int(os.getenv("STATUS_VC_ID", "0"))
 STATUS_LOG_CHANNEL_ID  = int(os.getenv("STATUS_LOG_CHANNEL_ID", "0"))
@@ -69,9 +67,7 @@ async def on_member_join(member):
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if ch:
         msg = WELCOME_TEXT.replace("{mention}", member.mention)
-        view = discord.ui.View(timeout=None)
-        view.add_item(discord.ui.Button(label=BUTTON_LABEL, style=discord.ButtonStyle.secondary, url=BIRTHDAY_FORM_LINK))
-        await ch.send(msg, view=view)
+        await ch.send(msg)
 
 
 @bot.event
