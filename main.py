@@ -20,7 +20,7 @@ VIP_TEXT     = os.getenv("VIP_TEXT", "<a:pepebirthday:1296553298895310971> It's 
 BUTTON_LABEL = os.getenv("BUTTON_LABEL", "Add Your Birthday")
 
 # CHANNEL STATUS CONFIG — THESE MUST BE SET IN RAILWAY VARIABLES
-STATUS_VC_ID_          = int(os.getenv("STATUS_VC_ID_", "0"))           # ← voice channel ID
+STATUS_VC_ID          = int(os.getenv("STATUS_VC_ID", "0"))           # ← voice channel ID
 STATUS_LOG_CHANNEL_ID = int(os.getenv("STATUS_LOG_CHANNEL_ID", "0"))  # ← text channel for embed
 STATUS_MESSAGE_ID     = int(os.getenv("STATUS_MESSAGE_ID", "0"))     # ← leave 0, bot fills it
 
@@ -73,10 +73,10 @@ async def status_updater_task():
     while not bot.is_closed():
         await asyncio.sleep(10)  # checks every 10 seconds
 
-        if not STATUS_VC_ID_ or not STATUS_LOG_CHANNEL_ID:
+        if not STATUS_VC_ID or not STATUS_LOG_CHANNEL_ID:
             continue
 
-        vc = bot.get_channel(STATUS_VC_ID_)
+        vc = bot.get_channel(STATUS_VC_ID)
         if not vc or not isinstance(vc, discord.VoiceChannel):
             continue
 
