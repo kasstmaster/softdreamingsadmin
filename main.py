@@ -1,6 +1,7 @@
 import discord
 import os
 import asyncio
+import aiohttp  # NEW
 
 intents = discord.Intents.default()
 intents.members = True
@@ -25,8 +26,25 @@ BUTTON_1_LABEL         = os.getenv("BUTTON_1_LABEL", "Showtimes")
 BUTTON_1_URL           = os.getenv("BUTTON_1_URL", "https://example.com")
 BUTTON_2_LABEL         = os.getenv("BUTTON_2_LABEL", "Other Movies/Shows")
 BUTTON_2_URL           = os.getenv("BUTTON_2_URL", "https://example.com")
-BUTTON_3_LABEL = os.getenv("BUTTON_3_LABEL", "More")
-BUTTON_3_URL   = os.getenv("BUTTON_3_URL", "https://example.com")
+BUTTON_3_LABEL         = os.getenv("BUTTON_3_LABEL", "More")
+BUTTON_3_URL           = os.getenv("BUTTON_3_URL", "https://example.com")
+
+# ─────── TWITCH CONFIG (DIRECT VIA TWITCH API) ───────
+TWITCH_CLIENT_ID     = os.getenv("TWITCH_CLIENT_ID", "")
+TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET", "")
+
+# Comma-separated list of Twitch channel names, defaulting to your two:
+TWITCH_CHANNELS = [c.strip().lower() for c in os.getenv("TWITCH_CHANNELS", "treyevreux,vokulnero").split(",") if c.strip()]
+
+# Channel where announcements are sent
+TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID", "0"))
+
+TWITCH_EMOJI = "<:twitch:1435152655990259773>"
+
+# Runtime state
+twitch_access_token: str | None = None
+twitch_live_state: dict[str, bool] = {}  # channel_name -> is_live
+
 
 # ────────────────────── /say COMMAND ──────────────────────
 @bot.slash_command(name="say", description="Make the bot say something right here")
@@ -37,11 +55,14 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
     await ctx.channel.send(message)
     await ctx.respond("Sent!", ephemeral=True)
 
+
 # ────────────────────── EVENTS ──────────────────────
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online and ready!")
     bot.loop.create_task(status_updater())
+    bot.loop.create_task(twitch_watcher())  # NEW
+
 
 @bot.event
 async def on_member_join(member):
@@ -52,16 +73,19 @@ async def on_member_join(member):
         view.add_item(discord.ui.Button(label=BUTTON_LABEL, style=discord.ButtonStyle.secondary, url=BIRTHDAY_FORM_LINK))
         await ch.send(msg, view=view)
 
+
 @bot.event
 async def on_member_update(before, after):
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
-    if not ch: return
+    if not ch:
+        return
     if before.premium_since is None and after.premium_since is not None:
         await ch.send(BOOST_TEXT.replace("{mention}", after.mention))
     new_roles = set(after.roles) - set(before.roles)
     for role in new_roles:
         if role.id == ROLE_TO_WATCH:
             await ch.send(VIP_TEXT.replace("{mention}", after.mention))
+
 
 # ────────────────────── STATUS UPDATE MSG ──────────────────────
 async def status_updater():
@@ -118,6 +142,155 @@ async def status_updater():
         print(f"New status → '{raw_status}' → fresh message sent")
 
         last_status = raw_status
+
+
+# ────────────────────── TWITCH API HELPERS ──────────────────────
+
+async def get_twitch_token():
+    """
+    Get an app access token from Twitch using client credentials.
+    """
+    global twitch_access_token
+
+    if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
+        print("Twitch: CLIENT_ID or CLIENT_SECRET not set; skipping Twitch checks.")
+        return None
+
+    url = "https://id.twitch.tv/oauth2/token"
+    params = {
+        "client_id": TWITCH_CLIENT_ID,
+        "client_secret": TWITCH_CLIENT_SECRET,
+        "grant_type": "client_credentials",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, params=params) as resp:
+            if resp.status != 200:
+                print(f"Twitch token error: HTTP {resp.status}")
+                twitch_access_token = None
+                return None
+            data = await resp.json()
+            twitch_access_token = data.get("access_token")
+            print("Twitch: obtained new access token")
+            return twitch_access_token
+
+
+async def fetch_twitch_streams():
+    """
+    Fetch live stream data for all configured Twitch channels.
+    Returns a mapping: login_name -> stream_data
+    """
+    global twitch_access_token
+
+    if not TWITCH_CHANNELS:
+        return {}
+
+    if not twitch_access_token:
+        token = await get_twitch_token()
+        if not token:
+            return {}
+
+    headers = {
+        "Client-ID": TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {twitch_access_token}",
+    }
+
+    url = "https://api.twitch.tv/helix/streams"
+    # multiple user_login params: ?user_login=a&user_login=b
+    params = [("user_login", name) for name in TWITCH_CHANNELS]
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, params=params) as resp:
+            if resp.status == 401:
+                # token expired, retry once
+                print("Twitch: token expired, refreshing")
+                twitch_access_token = None
+                token = await get_twitch_token()
+                if not token:
+                    return {}
+                headers["Authorization"] = f"Bearer {twitch_access_token}"
+                async with session.get(url, headers=headers, params=params) as resp2:
+                    if resp2.status != 200:
+                        print(f"Twitch fetch error after refresh: HTTP {resp2.status}")
+                        return {}
+                    data = await resp2.json()
+            elif resp.status != 200:
+                print(f"Twitch fetch error: HTTP {resp.status}")
+                return {}
+            else:
+                data = await resp.json()
+
+    streams = data.get("data", [])
+    result = {}
+    for s in streams:
+        login = s.get("user_login", "").lower()
+        if login:
+            result[login] = s
+    return result
+
+
+# ────────────────────── TWITCH WATCHER TASK ──────────────────────
+
+async def twitch_watcher():
+    """
+    Periodically checks Twitch for the configured channels and sends
+    a message when they go live.
+
+    Message format:
+    <:twitch:...> {username} is live ┃ {url}
+    -# @everyone
+    """
+    await bot.wait_until_ready()
+    print("Twitch watcher started")
+
+    if TWITCH_ANNOUNCE_CHANNEL_ID == 0:
+        print("Twitch: TWITCH_ANNOUNCE_CHANNEL_ID is 0; watcher is idle.")
+        return
+
+    announce_ch = bot.get_channel(TWITCH_ANNOUNCE_CHANNEL_ID)
+    if not announce_ch:
+        print("Twitch: announce channel not found; watcher is idle.")
+        return
+
+    # initialize state
+    for name in TWITCH_CHANNELS:
+        twitch_live_state[name] = False
+
+    while not bot.is_closed():
+        streams = await fetch_twitch_streams()
+
+        # mark which are live this check
+        live_now = {name: False for name in TWITCH_CHANNELS}
+        for login, s in streams.items():
+            if login in live_now:
+                live_now[login] = True
+
+        # for each tracked channel, compare previous state and announce transitions
+        for name in TWITCH_CHANNELS:
+            was_live = twitch_live_state.get(name, False)
+            is_live = live_now.get(name, False)
+
+            # went live
+            if is_live and not was_live:
+                twitch_live_state[name] = True
+                url = f"https://twitch.tv/{name}"
+                username = name  # or customize display names here
+
+                msg = f"{TWITCH_EMOJI} {username} is live ┃ {url}\n-# @everyone"
+                try:
+                    await announce_ch.send(msg)
+                    print(f"Twitch: announced live for {name}")
+                except Exception as e:
+                    print(f"Twitch: failed to send message for {name}: {e}")
+
+            # went offline
+            if not is_live and was_live:
+                twitch_live_state[name] = False
+                print(f"Twitch: {name} went offline")
+
+        # wait before next check
+        await asyncio.sleep(60)  # 60 seconds
+        
 
 # ────────────────────── START BOT ──────────────────────
 bot.run(os.getenv("TOKEN"))
