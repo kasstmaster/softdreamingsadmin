@@ -32,7 +32,7 @@ BUTTON_3_URL   = os.getenv("BUTTON_3_URL")
 TWITCH_CLIENT_ID     = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 
-# Comma-separated list of Twitch channel names, defaulting to your two:
+# Comma-separated list of Twitch channel names
 TWITCH_CHANNELS = [c.strip().lower() for c in os.getenv("TWITCH_CHANNELS").split(",") if c.strip()]
 
 # Channel where announcements are sent
@@ -44,6 +44,16 @@ TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 twitch_access_token: str | None = None
 twitch_live_state: dict[str, bool] = {}  # channel_name -> is_live
 
+# ────────────────────── REACTION ROLES CONFIG ──────────────────────
+
+REACTION_ROLE_MESSAGE_ID = 1441144067479310376
+
+reaction_roles: dict[str, int] = {
+    "◀️": 1352405080703504384,  # :arrow_backward:
+    "🔼": 1406868589893652520,  # :arrow_up_small:
+    "▶️": 1406868685225725976,  # :arrow_forward:
+    "🔽": 1342246913663303702,  # :arrow_down_small:
+}
 
 # ────────────────────── /say COMMAND ──────────────────────
 @bot.slash_command(name="say", description="Make the bot say something right here")
@@ -115,8 +125,26 @@ async def sticky(
 async def on_ready():
     print(f"{bot.user} is online and ready!")
     bot.loop.create_task(status_updater())
-    bot.loop.create_task(twitch_watcher())  # NEW
+    bot.loop.create_task(twitch_watcher())
 
+    # Try to add reactions to the reaction-role message
+    # Scans all text channels in all guilds the bot is in
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            try:
+                msg = await channel.fetch_message(REACTION_ROLE_MESSAGE_ID)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+
+            # Add all reaction emojis
+            for emoji in reaction_roles.keys():
+                try:
+                    await msg.add_reaction(emoji)
+                except discord.HTTPException:
+                    pass
+
+            print("Reaction roles: reactions added to message.")
+            return  # stop after first match
 
 @bot.event
 async def on_member_join(member):
@@ -137,6 +165,7 @@ async def on_member_update(before, after):
     for role in new_roles:
         if role.id == ROLE_TO_WATCH:
             await ch.send(VIP_TEXT.replace("{mention}", after.mention))
+
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -164,6 +193,62 @@ async def on_message(message: discord.Message):
     new_msg = await channel.send(text)
     sticky_messages[channel.id] = new_msg.id
 
+# ────────────────────── REACTION ROLE EVENTS ──────────────────────
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    if payload.message_id != REACTION_ROLE_MESSAGE_ID:
+        return
+
+    emoji_name = payload.emoji.name
+    if emoji_name not in reaction_roles:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    if guild is None:
+        return
+
+    role_id = reaction_roles[emoji_name]
+    role = guild.get_role(role_id)
+    if role is None:
+        return
+
+    member = guild.get_member(payload.user_id)
+    if member is None or member.bot:
+        return
+
+    try:
+        await member.add_roles(role, reason="Reaction role")
+    except discord.HTTPException:
+        pass
+
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    if payload.message_id != REACTION_ROLE_MESSAGE_ID:
+        return
+
+    emoji_name = payload.emoji.name
+    if emoji_name not in reaction_roles:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    if guild is None:
+        return
+
+    role_id = reaction_roles[emoji_name]
+    role = guild.get_role(role_id)
+    if role is None:
+        return
+
+    member = guild.get_member(payload.user_id)
+    if member is None or member.bot:
+        return
+
+    try:
+        await member.remove_roles(role, reason="Reaction role removed")
+    except discord.HTTPException:
+        pass
 
 # ────────────────────── STATUS UPDATE MSG ──────────────────────
 async def status_updater():
@@ -208,7 +293,10 @@ async def status_updater():
         # ←←← NEW STATUS → send fresh message ←←←
         embed = discord.Embed(color=0x2e2f33)
         embed.title = raw_status
-        embed.description = "Playing all day. Feel free to coordinate with others in chat if you want to plan a group watch later in the day."
+        embed.description = (
+            "Playing all day. Feel free to coordinate with others in chat "
+            "if you want to plan a group watch later in the day."
+        )
         embed.set_footer(text=f"Updated • {discord.utils.utcnow().strftime('%b %d • %I:%M %p UTC')}")
 
         view = discord.ui.View(timeout=None)
