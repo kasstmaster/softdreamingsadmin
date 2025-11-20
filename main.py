@@ -44,20 +44,26 @@ TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 twitch_access_token: str | None = None
 twitch_live_state: dict[str, bool] = {}  # channel_name -> is_live
 
-# ────────────────────── REACTION ROLES CONFIG ──────────────────────
+# ────────────────────── REACTION ROLES CONFIG (ALL FROM ENV) ──────────────────────
 
-REACTION_ROLE_MESSAGE_ID = 1441144067479310376
+REACTION_ROLE_MESSAGE_ID = int(os.getenv("REACTION_ROLE_MESSAGE_ID"))
 
-reaction_roles: dict[str, int] = {
-    "◀️": 1352405080703504384,  # :arrow_backward:
-    "🔼": 1406868589893652520,  # :arrow_up_small:
-    "▶️": 1406868685225725976,  # :arrow_forward:
-    "🔽": 1342246913663303702,  # :arrow_down_small:
-}
+reaction_roles = {}
+
+_raw_pairs = os.getenv("REACTION_ROLES", "")
+if _raw_pairs:
+    for pair in _raw_pairs.split(","):
+        if ":" in pair:
+            emoji, role_id = pair.split(":", 1)
+            emoji = emoji.strip()
+            role_id = role_id.strip()
+            if role_id.isdigit():
+                reaction_roles[emoji] = int(role_id)
+
 
 # ────────────────────── MOD LOG THREAD ──────────────────────
 
-MOD_LOG_THREAD_ID = 1295173391099363361  # all ban/kick/leave logs go here
+MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
 
 
 async def log_to_thread(content: str):
@@ -70,7 +76,6 @@ async def log_to_thread(content: str):
         await channel.send(content)
     except Exception as e:
         print(f"Failed to send log message: {e}")
-
 
 # ────────────────────── /say COMMAND ──────────────────────
 @bot.slash_command(name="say", description="Make the bot say something right here")
