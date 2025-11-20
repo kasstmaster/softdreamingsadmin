@@ -38,7 +38,7 @@ async def say(ctx, channel: discord.Option(discord.TextChannel), message: str):
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online and ready!")
-    bot.loop.create_task(status_updater())   # ← NOW MATCHES FUNCTION NAME
+    bot.loop.create_task(status_updater())
 
 @bot.event
 async def on_member_join(member):
@@ -60,11 +60,11 @@ async def on_member_update(before, after):
         if role.id == ROLE_TO_WATCH:
             await ch.send(VIP_TEXT.replace("{mention}", after.mention))
 
-# ────────────────────── WORKING STATUS UPDATER ──────────────────────
+# ────────────────────── FINAL WORKING STATUS UPDATER (uses .status, not .topic) ──────────────────────
 async def status_updater():
     await bot.wait_until_ready()
-    print("Channel Status updater STARTED and running every 10s")
-    last_topic = None
+    print("Channel Status updater STARTED — checking every 10 seconds")
+    last_status = None
 
     while not bot.is_closed():
         await asyncio.sleep(10)
@@ -74,15 +74,17 @@ async def status_updater():
 
         vc = bot.get_channel(STATUS_VC_ID_)
         log_ch = bot.get_channel(STATUS_LOG_CHANNEL_ID)
-        if not vc or not log_ch:
+        if not vc or not log_ch or not isinstance(vc, discord.VoiceChannel):
             continue
 
-        current_topic = (vc.topic or "").strip() or "*No status set*"
-        if current_topic == last_topic:
+        current_status = (vc.status or "").strip() or "*No status set*"
+
+        if current_status == last_status:
             continue
 
-        print(f"TOPIC CHANGED → '{current_topic}'")
-        embed = discord.Embed(title="Channel Status", description=current_topic, color=0x00ffae)
+        print(f"STATUS CHANGED → '{current_status}' — posting/updating embed")
+
+        embed = discord.Embed(title="Channel Status", description=current_status, color=0x00ffae)
         embed.set_footer(text=f"Updated • {discord.utils.utcnow().strftime('%b %d • %I:%M %p UTC')}")
 
         view = discord.ui.View(timeout=None)
@@ -90,6 +92,6 @@ async def status_updater():
         view.add_item(discord.ui.Button(label=BUTTON_2_LABEL, url=BUTTON_2_URL, style=discord.ButtonStyle.link))
 
         await log_ch.send(embed=embed, view=view)
-        last_topic = current_topic
+        last_status = current_status
 
 bot.run(os.getenv("TOKEN"))
