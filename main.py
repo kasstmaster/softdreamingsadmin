@@ -20,7 +20,7 @@ BOOST_TEXT   = os.getenv("BOOST_TEXT", "<:boost:1435140623714877460> @{mention} 
 VIP_TEXT     = os.getenv("VIP_TEXT", "<a:pepebirthday:1296553298895310971> It's @{mention}'s birthday!\n-# @everyone")
 BUTTON_LABEL = os.getenv("BUTTON_LABEL", "Add Your Birthday")
 
-STATUS_VC_ID_          = int(os.getenv("STATUS_VC_ID_", "0"))
+STATUS_VC_ID          = int(os.getenv("STATUS_VC_ID", "0"))
 STATUS_LOG_CHANNEL_ID  = int(os.getenv("STATUS_LOG_CHANNEL_ID", "0"))
 BUTTON_1_LABEL         = os.getenv("BUTTON_1_LABEL", "Showtimes")
 BUTTON_1_URL           = os.getenv("BUTTON_1_URL", "https://example.com")
@@ -93,7 +93,7 @@ async def status_updater():
     print("Channel Status updater STARTED — no spam on restart, silent when empty")
 
     # Read current status on startup so we don't announce it again
-    vc = bot.get_channel(STATUS_VC_ID_)
+    vc = bot.get_channel(STATUS_VC_ID)
     initial_status = None
     if vc and isinstance(vc, discord.VoiceChannel):
         initial_status = str(vc.status or "").strip()
@@ -106,10 +106,10 @@ async def status_updater():
     while not bot.is_closed():
         await asyncio.sleep(10)
 
-        if STATUS_VC_ID_ == 0 or STATUS_LOG_CHANNEL_ID == 0:
+        if STATUS_VC_ID == 0 or STATUS_LOG_CHANNEL_ID == 0:
             continue
 
-        vc = bot.get_channel(STATUS_VC_ID_)
+        vc = bot.get_channel(STATUS_VC_ID)
         log_ch = bot.get_channel(STATUS_LOG_CHANNEL_ID)
         if not vc or not log_ch or not isinstance(vc, discord.VoiceChannel):
             continue
