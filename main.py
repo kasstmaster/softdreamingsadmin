@@ -79,12 +79,11 @@ async def on_member_update(before, after):
         if role.id == ROLE_TO_WATCH:
             await ch.send(VIP_TEXT.replace("{mention}", after.mention))
 
-# ────────────────────── FIXED STATUS UPDATER (edits the same message forever) ──────────────────────
 async def status_updater():
     await bot.wait_until_ready()
     print("Channel Status updater STARTED — one permanent message")
-    last_status = None
-    message = None  # Will hold the single embed message
+    last_status = None          # will be None or actual string (including empty)
+    message = None
 
     while not bot.is_closed():
         await asyncio.sleep(10)
@@ -97,12 +96,17 @@ async def status_updater():
         if not vc or not log_ch or not isinstance(vc, discord.VoiceChannel):
             continue
 
-        current_status = (vc.status or "").strip() or "Channel Status"
+        current_status = vc.status or ""        # ← keep empty string as-is, don't fallback yet
+
+        # Only trigger when it actually changes
         if current_status == last_status:
             continue
 
+        # Build title — only show "Channel Status" when truly empty
+        title = current_status if current_status else "Channel Status"
+
         embed = discord.Embed(color=0x00ffae)
-        embed.title = current_status
+        embed.title = title
         embed.description = "Playing all day. Feel free to coordinate with others in chat if you want to plan a group watch later in the day."
         embed.set_footer(text=f"Updated • {discord.utils.utcnow().strftime('%b %d • %I:%M %p UTC')}")
 
@@ -116,6 +120,7 @@ async def status_updater():
         else:
             await message.edit(embed=embed, view=view)
 
-        last_status = current_status
+        last_status = current_status          # ← store the real value (can be empty string)
+        
 
 bot.run(os.getenv("TOKEN"))
