@@ -57,7 +57,7 @@ reaction_roles: dict[str, int] = {
 
 # ────────────────────── MOD LOG THREAD ──────────────────────
 
-MOD_LOG_THREAD_ID = 1441191840551538709  # all ban/kick/leave logs go here
+MOD_LOG_THREAD_ID = 1295173391099363361  # all ban/kick/leave logs go here
 
 
 async def log_to_thread(content: str):
