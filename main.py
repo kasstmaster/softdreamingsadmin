@@ -66,12 +66,15 @@ async def status_updater():
     await bot.wait_until_ready()
     print("Channel Status updater STARTED — no spam on restart, silent when empty")
 
-    # Remember current status on startup so we don't announce it again
+    # Read current status on startup so we don't announce it again
     vc = bot.get_channel(STATUS_VC_ID_)
     initial_status = None
     if vc and isinstance(vc, discord.VoiceChannel):
         initial_status = str(vc.status or "").strip()
-        print(f"Bot started → current status: '{initial_status or '(empty)'}'")
+        if initial_status:
+            print(f"Bot started → current status is '{initial_status}' → no auto-message")
+        else:
+            print("Bot started → status is empty → staying silent")
     last_status = initial_status if initial_status else None
 
     while not bot.is_closed():
@@ -87,18 +90,19 @@ async def status_updater():
 
         raw_status = str(vc.status or "").strip()
 
-        # Empty status → stay silent
+        # Empty status → do nothing
         if not raw_status:
             if last_status is not None:
+                print("Status cleared → staying silent")
                 last_status = None
             continue
 
-        # Same status → stay silent
+        # Same as last announced → stay silent
         if raw_status == last_status:
             continue
 
-        # NEW STATUS → send fresh message
-        embed = discord.Embed(color=0x2d2e34)
+        # ←←← NEW STATUS → send fresh message ←←←
+        embed = discord.Embed(color=0x00ffae)
         embed.title = raw_status
         embed.description = "Playing all day. Feel free to coordinate with others in chat if you want to plan a group watch later in the day."
         embed.set_footer(text=f"Updated • {discord.utils.utcnow().strftime('%b %d • %I:%M %p UTC')}")
@@ -106,10 +110,10 @@ async def status_updater():
         view = discord.ui.View(timeout=None)
         view.add_item(discord.ui.Button(label=BUTTON_1_LABEL, url=BUTTON_1_URL, style=discord.ButtonStyle.link))
         view.add_item(discord.ui.Button(label=BUTTON_2_LABEL, url=BUTTON_2_URL, style=discord.ButtonStyle.link))
-        view.add_item(discord.ui.Button(label=BUTTON_3_LABEL, url=BUTTON_3_URL, style=discord.ButtonStyle.link, emoji="🎟️"))
 
         await log_ch.send(embed=embed, view=view)
-        print(f"New status → '{raw_status}' → message sent")
+        print(f"New status → '{raw_status}' → fresh message sent")
+
         last_status = raw_status
 
 # ────────────────────── START BOT ──────────────────────
