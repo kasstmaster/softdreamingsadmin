@@ -26,9 +26,9 @@ BUTTON_1_URL           = os.getenv("BUTTON_1_URL", "https://example.com")
 BUTTON_2_LABEL         = os.getenv("BUTTON_2_LABEL", "Other Movies/Shows")
 BUTTON_2_URL           = os.getenv("BUTTON_2_URL", "https://example.com")
 
-# ────────────────────── /say (sends in the channel where you use it) ──────────────────────
+# ────────────────────── FINAL /say — ONLY ONE FIELD, SENDS WHERE USED ──────────────────────
 @bot.slash_command(name="say", description="Make the bot say something right here")
-async def say(ctx, *, message: discord.Option(str, "Message to send", required=True)):
+async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator.", ephemeral=True)
     
@@ -61,20 +61,17 @@ async def on_member_update(before, after):
         if role.id == ROLE_TO_WATCH:
             await ch.send(VIP_TEXT.replace("{mention}", after.mention))
 
-# ────────────────────── FINAL STATUS UPDATER (your exact rules) ──────────────────────
+# ────────────────────── FINAL STATUS UPDATER (no spam, silent when empty) ──────────────────────
 async def status_updater():
     await bot.wait_until_ready()
     print("Channel Status updater STARTED — no spam on restart, silent when empty")
 
-    # Read current status on startup so we don't announce it again
+    # Remember current status on startup so we don't announce it again
     vc = bot.get_channel(STATUS_VC_ID_)
     initial_status = None
     if vc and isinstance(vc, discord.VoiceChannel):
         initial_status = str(vc.status or "").strip()
-        if initial_status:
-            print(f"Bot started → current status is '{initial_status}' → no auto-message")
-        else:
-            print("Bot started → status is empty → staying silent")
+        print(f"Bot started → current status: '{initial_status or '(empty)'}'")
     last_status = initial_status if initial_status else None
 
     while not bot.is_closed():
@@ -90,18 +87,17 @@ async def status_updater():
 
         raw_status = str(vc.status or "").strip()
 
-        # Empty status → do nothing
+        # Empty status → stay silent
         if not raw_status:
             if last_status is not None:
-                print("Status cleared → staying silent")
                 last_status = None
             continue
 
-        # Same as last announced → stay silent
+        # Same status → stay silent
         if raw_status == last_status:
             continue
 
-        # ←←← NEW STATUS → send fresh message ←←←
+        # NEW STATUS → send fresh message
         embed = discord.Embed(color=0x00ffae)
         embed.title = raw_status
         embed.description = "Playing all day. Feel free to coordinate with others in chat if you want to plan a group watch later in the day."
@@ -112,8 +108,7 @@ async def status_updater():
         view.add_item(discord.ui.Button(label=BUTTON_2_LABEL, url=BUTTON_2_URL, style=discord.ButtonStyle.link))
 
         await log_ch.send(embed=embed, view=view)
-        print(f"New status → '{raw_status}' → fresh message sent")
-
+        print(f"New status → '{raw_status}' → message sent")
         last_status = raw_status
 
 # ────────────────────── START BOT ──────────────────────
