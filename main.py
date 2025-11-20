@@ -51,6 +51,56 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
     await ctx.channel.send(message)
     await ctx.respond("Sent!", ephemeral=True)
 
+# ────────────────────── STICKY NOTES ──────────────────────
+
+# channel_id -> message_id
+sticky_messages: dict[int, int] = {}
+
+@bot.slash_command(name="sticky", description="Create or clear a sticky note in this channel")
+async def sticky(
+    ctx,
+    action: discord.Option(str, "Action", choices=["set", "clear"], required=True),
+    text: discord.Option(str, "Sticky note text", required=False)
+):
+    # Admin check
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("You need Administrator.", ephemeral=True)
+
+    channel = ctx.channel
+
+    # ────────── SET STICKY ──────────
+    if action == "set":
+        if not text:
+            return await ctx.respond("You must provide text for the sticky note.", ephemeral=True)
+
+        existing_id = sticky_messages.get(channel.id)
+        if existing_id:
+            try:
+                msg = await channel.fetch_message(existing_id)
+                await msg.edit(content=text)
+                return await ctx.respond("Sticky note updated.", ephemeral=True)
+            except discord.NotFound:
+                pass  # message got deleted
+
+        # Create new sticky
+        msg = await channel.send(text)
+        sticky_messages[channel.id] = msg.id
+        return await ctx.respond("Sticky note created.", ephemeral=True)
+
+    # ────────── CLEAR STICKY ──────────
+    elif action == "clear":
+        existing_id = sticky_messages.get(channel.id)
+        if not existing_id:
+            return await ctx.respond("There is no sticky note in this channel.", ephemeral=True)
+
+        try:
+            msg = await channel.fetch_message(existing_id)
+            await msg.delete()
+        except discord.NotFound:
+            pass
+
+        sticky_messages.pop(channel.id, None)
+        return await ctx.respond("Sticky note cleared.", ephemeral=True)
 
 # ────────────────────── EVENTS ──────────────────────
 @bot.event
