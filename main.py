@@ -10,7 +10,7 @@ intents.voice_states = True
 
 bot = discord.Bot(
     intents=intents,
-    debug_guilds=[1205041211610501120]  # your server ID
+    debug_guilds=[DEBUG_GUILD_ID]
 )
 
 # ────────────────────── CONFIG ──────────────────────
@@ -27,6 +27,9 @@ BUTTON_1_LABEL = os.getenv("BUTTON_1_LABEL")
 BUTTON_1_URL   = os.getenv("BUTTON_1_URL")
 BUTTON_3_LABEL = os.getenv("BUTTON_3_LABEL")
 BUTTON_3_URL   = os.getenv("BUTTON_3_URL")
+
+MEMBER_JOIN_ROLE_ID = int(os.getenv("MEMBER_JOIN_ROLE_ID"))  # role after 24h
+BOT_JOIN_ROLE_ID    = int(os.getenv("BOT_JOIN_ROLE_ID"))     # role instantly for bots
 
 # ─────── TWITCH CONFIG (DIRECT VIA TWITCH API) ───────
 TWITCH_CLIENT_ID     = os.getenv("TWITCH_CLIENT_ID")
@@ -213,6 +216,37 @@ async def on_message(message: discord.Message):
     text = sticky_texts[channel.id]
     new_msg = await channel.send(text)
     sticky_messages[channel.id] = new_msg.id
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    # Keep your existing welcome action
+    ch = bot.get_channel(WELCOME_CHANNEL_ID)
+    if ch:
+        msg = WELCOME_TEXT.replace("{mention}", member.mention)
+        await ch.send(msg)
+
+    # Bot joins → assign instantly
+    if member.bot and BOT_JOIN_ROLE_ID:
+        role = member.guild.get_role(BOT_JOIN_ROLE_ID)
+        if role:
+            try:
+                await member.add_roles(role, reason="Bot auto-role")
+            except:
+                pass
+        return
+
+    # Humans → schedule 24-hour delay
+    if not member.bot and MEMBER_JOIN_ROLE_ID:
+        async def give_delayed_role():
+            await asyncio.sleep(86400)  # 24 hours
+            role = member.guild.get_role(MEMBER_JOIN_ROLE_ID)
+            if role and member in member.guild.members:
+                try:
+                    await member.add_roles(role, reason="24h join role")
+                except:
+                    pass
+
+        bot.loop.create_task(give_delayed_role())
 
 # ────────────────────── MODERATION LOG EVENTS ──────────────────────
 
