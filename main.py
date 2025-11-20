@@ -8,6 +8,8 @@ intents.members = True
 intents.message_content = True
 intents.voice_states = True
 
+DEBUG_GUILD_ID = int(os.getenv("DEBUG_GUILD_ID"))
+
 bot = discord.Bot(
     intents=intents,
     debug_guilds=[DEBUG_GUILD_ID]
@@ -35,17 +37,14 @@ BOT_JOIN_ROLE_ID    = int(os.getenv("BOT_JOIN_ROLE_ID"))     # role instantly fo
 TWITCH_CLIENT_ID     = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 
-# Comma-separated list of Twitch channel names
 TWITCH_CHANNELS = [c.strip().lower() for c in os.getenv("TWITCH_CHANNELS").split(",") if c.strip()]
 
-# Channel where announcements are sent
 TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID"))
 
 TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 
-# Runtime state
 twitch_access_token: str | None = None
-twitch_live_state: dict[str, bool] = {}  # channel_name -> is_live
+twitch_live_state: dict[str, bool] = {}
 
 # ────────────────────── REACTION ROLES CONFIG (ALL FROM ENV) ──────────────────────
 
@@ -91,9 +90,7 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
 
 # ────────────────────── STICKY NOTES ──────────────────────
 
-# channel_id -> message_id
 sticky_messages: dict[int, int] = {}
-# channel_id -> sticky text
 sticky_texts: dict[int, str] = {}
 
 @bot.slash_command(name="sticky", description="Create or clear a sticky note in this channel")
@@ -102,7 +99,6 @@ async def sticky(
     action: discord.Option(str, "Action", choices=["set", "clear"], required=True),
     text: discord.Option(str, "Sticky note text", required=False)
 ):
-    # Admin check
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator.", ephemeral=True)
 
@@ -113,7 +109,7 @@ async def sticky(
         if not text:
             return await ctx.respond("You must provide text for the sticky note.", ephemeral=True)
 
-        sticky_texts[channel.id] = text  # remember the text
+        sticky_texts[channel.id] = text 
 
         existing_id = sticky_messages.get(channel.id)
         if existing_id:
@@ -122,9 +118,8 @@ async def sticky(
                 await msg.edit(content=text)
                 return await ctx.respond("Sticky note updated.", ephemeral=True)
             except discord.NotFound:
-                pass  # message got deleted
+                pass 
 
-        # Create new sticky
         msg = await channel.send(text)
         sticky_messages[channel.id] = msg.id
         return await ctx.respond("Sticky note created.", ephemeral=True)
@@ -152,7 +147,6 @@ async def on_ready():
     bot.loop.create_task(status_updater())
     bot.loop.create_task(twitch_watcher())
 
-    # Try to add reactions to the reaction-role message
     for guild in bot.guilds:
         for channel in guild.text_channels:
             try:
@@ -160,7 +154,6 @@ async def on_ready():
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 continue
 
-            # Add all reaction emojis
             for emoji in reaction_roles.keys():
                 try:
                     await msg.add_reaction(emoji)
@@ -168,14 +161,7 @@ async def on_ready():
                     pass
 
             print("Reaction roles: reactions added to message.")
-            return  # stop after first match
-
-@bot.event
-async def on_member_join(member):
-    ch = bot.get_channel(WELCOME_CHANNEL_ID)
-    if ch:
-        msg = WELCOME_TEXT.replace("{mention}", member.mention)
-        await ch.send(msg)
+            return 
 
 
 @bot.event
@@ -193,17 +179,14 @@ async def on_member_update(before, after):
 
 @bot.event
 async def on_message(message: discord.Message):
-    # Ignore bot messages (including this bot)
     if message.author.bot:
         return
 
     channel = message.channel
 
-    # Only do sticky behavior if this channel has one configured
     if channel.id not in sticky_texts:
         return
 
-    # Delete old sticky if it exists
     old_id = sticky_messages.get(channel.id)
     if old_id:
         try:
@@ -212,20 +195,17 @@ async def on_message(message: discord.Message):
         except discord.NotFound:
             pass
 
-    # Re-send sticky at the bottom
     text = sticky_texts[channel.id]
     new_msg = await channel.send(text)
     sticky_messages[channel.id] = new_msg.id
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    # Keep your existing welcome action
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if ch:
         msg = WELCOME_TEXT.replace("{mention}", member.mention)
         await ch.send(msg)
 
-    # Bot joins → assign instantly
     if member.bot and BOT_JOIN_ROLE_ID:
         role = member.guild.get_role(BOT_JOIN_ROLE_ID)
         if role:
@@ -235,7 +215,6 @@ async def on_member_join(member: discord.Member):
                 pass
         return
 
-    # Humans → schedule 24-hour delay
     if not member.bot and MEMBER_JOIN_ROLE_ID:
         async def give_delayed_role():
             await asyncio.sleep(86400)  # 24 hours
@@ -272,7 +251,6 @@ async def on_member_remove(member: discord.Member):
     guild = member.guild
     now = discord.utils.utcnow()
 
-    # Check if this was a recent ban; if so, skip (on_member_ban already logged it)
     try:
         async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.ban):
             if entry.target.id == member.id:
@@ -281,7 +259,6 @@ async def on_member_remove(member: discord.Member):
     except discord.Forbidden:
         pass
 
-    # Check for recent kick
     moderator = None
     is_kick = False
     try:
@@ -362,7 +339,6 @@ async def status_updater():
     await bot.wait_until_ready()
     print("Channel Status updater STARTED — no spam on restart, silent when empty")
 
-    # Read current status on startup so we don't announce it again
     vc = bot.get_channel(STATUS_VC_ID)
     initial_status = None
     if vc and isinstance(vc, discord.VoiceChannel):
@@ -386,18 +362,15 @@ async def status_updater():
 
         raw_status = str(vc.status or "").strip()
 
-        # Empty status → do nothing
         if not raw_status:
             if last_status is not None:
                 print("Status cleared → staying silent")
                 last_status = None
             continue
 
-        # Same as last announced → stay silent
         if raw_status == last_status:
             continue
 
-        # ←←← NEW STATUS → send fresh message ←←←
         embed = discord.Embed(color=0x2e2f33)
         embed.title = raw_status
         embed.description = (
@@ -468,13 +441,11 @@ async def fetch_twitch_streams():
     }
 
     url = "https://api.twitch.tv/helix/streams"
-    # multiple user_login params: ?user_login=a&user_login=b
     params = [("user_login", name) for name in TWITCH_CHANNELS]
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers, params=params) as resp:
             if resp.status == 401:
-                # token expired, retry once
                 print("Twitch: token expired, refreshing")
                 twitch_access_token = None
                 token = await get_twitch_token()
@@ -524,29 +495,25 @@ async def twitch_watcher():
         print("Twitch: announce channel not found; watcher is idle.")
         return
 
-    # initialize state
     for name in TWITCH_CHANNELS:
         twitch_live_state[name] = False
 
     while not bot.is_closed():
         streams = await fetch_twitch_streams()
 
-        # mark which are live this check
         live_now = {name: False for name in TWITCH_CHANNELS}
         for login, s in streams.items():
             if login in live_now:
                 live_now[login] = True
 
-        # for each tracked channel, compare previous state and announce transitions
         for name in TWITCH_CHANNELS:
             was_live = twitch_live_state.get(name, False)
             is_live = live_now.get(name, False)
 
-            # went live
             if is_live and not was_live:
                 twitch_live_state[name] = True
                 url = f"https://twitch.tv/{name}"
-                username = name  # or customize display names here
+                username = name  
 
                 msg = f"{TWITCH_EMOJI} {username} is live ┃ {url}\n-# @everyone"
                 try:
@@ -555,13 +522,11 @@ async def twitch_watcher():
                 except Exception as e:
                     print(f"Twitch: failed to send message for {name}: {e}")
 
-            # went offline
             if not is_live and was_live:
                 twitch_live_state[name] = False
                 print(f"Twitch: {name} went offline")
 
-        # wait before next check
-        await asyncio.sleep(60)  # 60 seconds
+        await asyncio.sleep(60) 
         
 
 # ────────────────────── START BOT ──────────────────────
