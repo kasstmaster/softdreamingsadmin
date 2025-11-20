@@ -77,15 +77,14 @@ def build_birthday_embed(guild: discord.Guild):
 
     items = []
     for user_id, mm_dd in birthdays.items():
-        member = guild.get_member(int(user_id))
-        name = member.display_name if member else f"User {user_id}"
-        items.append((mm_dd, name))
+        items.append((mm_dd, user_id))
 
-    # sort by month-day string
+    # sort by month-day
     items.sort(key=lambda x: x[0])
 
-    lines = [f"`{mm_dd}` — {name}" for mm_dd, name in items]
+    lines = [f"`{mm_dd}` — <@{user_id}>" for mm_dd, user_id in items]
     embed.description = "\n".join(lines)
+
     return embed
 
 # ────────────────────── REFRESH VIEW ──────────────────────
