@@ -55,6 +55,23 @@ reaction_roles: dict[str, int] = {
     "🔽": 1342246913663303702,  # :arrow_down_small:
 }
 
+# ────────────────────── MOD LOG THREAD ──────────────────────
+
+MOD_LOG_THREAD_ID = 1295173391099363361  # all ban/kick/leave logs go here
+
+
+async def log_to_thread(content: str):
+    """Send a log message to the configured moderation log thread."""
+    channel = bot.get_channel(MOD_LOG_THREAD_ID)
+    if not channel:
+        print("Mod log thread not found.")
+        return
+    try:
+        await channel.send(content)
+    except Exception as e:
+        print(f"Failed to send log message: {e}")
+
+
 # ────────────────────── /say COMMAND ──────────────────────
 @bot.slash_command(name="say", description="Make the bot say something right here")
 async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
@@ -128,7 +145,6 @@ async def on_ready():
     bot.loop.create_task(twitch_watcher())
 
     # Try to add reactions to the reaction-role message
-    # Scans all text channels in all guilds the bot is in
     for guild in bot.guilds:
         for channel in guild.text_channels:
             try:
@@ -192,6 +208,58 @@ async def on_message(message: discord.Message):
     text = sticky_texts[channel.id]
     new_msg = await channel.send(text)
     sticky_messages[channel.id] = new_msg.id
+
+# ────────────────────── MODERATION LOG EVENTS ──────────────────────
+
+@bot.event
+async def on_member_ban(guild: discord.Guild, user: discord.User):
+    """Log bans with moderator if possible."""
+    moderator = None
+    try:
+        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.ban):
+            if entry.target.id == user.id:
+                moderator = entry.user
+                break
+    except discord.Forbidden:
+        pass
+
+    mod_text = moderator.mention if moderator else "Unknown"
+    await log_to_thread(f"{user.mention} was banned by {mod_text}")
+
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    """Distinguish between kick and leave; skip bans (handled in on_member_ban)."""
+    guild = member.guild
+    now = discord.utils.utcnow()
+
+    # Check if this was a recent ban; if so, skip (on_member_ban already logged it)
+    try:
+        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.ban):
+            if entry.target.id == member.id:
+                if (now - entry.created_at).total_seconds() < 10:
+                    return
+    except discord.Forbidden:
+        pass
+
+    # Check for recent kick
+    moderator = None
+    is_kick = False
+    try:
+        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.kick):
+            if entry.target.id == member.id:
+                if (now - entry.created_at).total_seconds() < 10:
+                    moderator = entry.user
+                    is_kick = True
+                    break
+    except discord.Forbidden:
+        pass
+
+    if is_kick:
+        mod_text = moderator.mention if moderator else "Unknown"
+        await log_to_thread(f"{member.mention} was kicked by {mod_text}")
+    else:
+        await log_to_thread(f"{member.mention} has left the server")
 
 # ────────────────────── REACTION ROLE EVENTS ──────────────────────
 
