@@ -8,7 +8,10 @@ intents.members = True
 intents.message_content = True
 intents.voice_states = True
 
-bot = discord.Bot(intents=intents)
+bot = discord.Bot(
+    intents=intents,
+    debug_guilds=[1205041211610501120]  # your server ID
+)
 
 # ────────────────────── CONFIG ──────────────────────
 WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
