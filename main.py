@@ -289,8 +289,7 @@ async def handle_dead_chat_message(message: discord.Message):
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
     notice = await channel.send(
     f"{member.mention} has stolen the {role.mention} role after {minutes} minutes of silence.\n"
-    f"-# They can spam memes in the graveyard channel, shit-talk (within reason) the next person to steal the role, and **change their role color in https://discord.com/channels/1205041211610501120/1440989357535395911**!"
-    f"-# Theres also a random chance to win NITRO BASIC with this role."
+    f"-# They can spam memes in the graveyard channel, shit-talk (within reason) the next person to steal the role, and **change their role color in https://discord.com/channels/1205041211610501120/1440989357535395911**! Theres also a random chance to win NITRO BASIC with this role."
     )
     dead_last_notice_message_ids[channel.id] = notice.id
 
