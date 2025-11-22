@@ -180,7 +180,7 @@ class BasePrizeView(discord.ui.View):
         if ch:
             await ch.send(
                 f"<:prize:1441586959909781666> {interaction.user.mention} has won a **{self.gift_title}** "
-                f"with {role_mention}!\n"
+                f"with the {role_mention} role!\n"
                 f"-# *Drop Rate: {self.rarity}*"
             )
 
@@ -288,7 +288,7 @@ async def prize_announce(
     ch = ctx.channel
 
     await ch.send(
-        f"<:prize:1441586959909781666> {member.mention} has won a **{gift_title}** with {role_mention}!\n"
+        f"<:prize:1441586959909781666> {member.mention} has won a **{gift_title}** with the {role_mention} role!\n"
         f"-# *Drop Rate: {rarity}*"
     )
 
