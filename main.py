@@ -179,7 +179,7 @@ class BasePrizeView(discord.ui.View):
         ch = guild.get_channel(WELCOME_CHANNEL_ID)
         if ch:
             await ch.send(
-                f"{interaction.user.mention} has won a **{self.gift_title}** "
+                f"<:prize:1441586959909781666> {interaction.user.mention} has won a **{self.gift_title}** "
                 f"with {role_mention}! *Drop Rate: {self.rarity}*"
             )
 
@@ -287,7 +287,7 @@ async def prize_announce(
     ch = ctx.channel
 
     await ch.send(
-        f"{member.mention} has won a **{gift_title}** with {role_mention}! *Drop Rate: {rarity}*"
+        f"<:prize:1441586959909781666> {member.mention} has won a **{gift_title}** with {role_mention}! *Drop Rate: {rarity}*"
     )
 
     await ctx.respond("Prize announcement sent.", ephemeral=True)
