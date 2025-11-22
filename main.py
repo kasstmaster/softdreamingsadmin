@@ -180,7 +180,8 @@ class BasePrizeView(discord.ui.View):
         if ch:
             await ch.send(
                 f"<:prize:1441586959909781666> {interaction.user.mention} has won a **{self.gift_title}** "
-                f"with {role_mention}! *Drop Rate: {self.rarity}*"
+                f"with {role_mention}!\n"
+                f"-# *Drop Rate: {self.rarity}*"
             )
 
         # Ephemeral confirmation
@@ -287,7 +288,8 @@ async def prize_announce(
     ch = ctx.channel
 
     await ch.send(
-        f"<:prize:1441586959909781666> {member.mention} has won a **{gift_title}** with {role_mention}! *Drop Rate: {rarity}*"
+        f"<:prize:1441586959909781666> {member.mention} has won a **{gift_title}** with {role_mention}!\n"
+        f"-# *Drop Rate: {rarity}*"
     )
 
     await ctx.respond("Prize announcement sent.", ephemeral=True)
