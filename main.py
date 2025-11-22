@@ -143,6 +143,155 @@ async def birthday_announce(
 
     await ctx.respond(f"Sent birthday message for {member.mention}.", ephemeral=True)
 
+# ────────────────────── PRIZE VIEWS ──────────────────────
+
+class BasePrizeView(discord.ui.View):
+    gift_title: str = ""
+    rarity: str = ""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Claim Your Prize!", style=discord.ButtonStyle.primary)
+    async def claim_button(
+        self,
+        button: discord.ui.Button,
+        interaction: discord.Interaction
+    ):
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message(
+                "This can only be used in a server.",
+                ephemeral=True
+            )
+
+        # Delete the prize message
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+
+        # Get Dead Chat role mention
+        dead_role = guild.get_role(DEAD_CHAT_ROLE_ID)
+        role_mention = dead_role.mention if dead_role else "the Dead Chat role"
+
+        # Winner announcement
+        ch = guild.get_channel(WELCOME_CHANNEL_ID)
+        if ch:
+            await ch.send(
+                f"{interaction.user.mention} has won a **{self.gift_title}** "
+                f"with {role_mention}! *Drop Rate: {self.rarity}*"
+            )
+
+        # Ephemeral confirmation
+        await interaction.response.send_message(
+            f"You claimed a **{self.gift_title}**!",
+            ephemeral=True
+        )
+
+
+class MoviePrizeView(BasePrizeView):
+    gift_title = "Movie Request"
+    rarity = "Common"
+
+
+class NitroPrizeView(BasePrizeView):
+    gift_title = "Month of Nitro Basic"
+    rarity = "Uncommon"
+
+
+class SteamPrizeView(BasePrizeView):
+    gift_title = "Steam Gift Card"
+    rarity = "Rare"
+
+
+# ────────────────────── PRIZE SLASH COMMANDS ──────────────────────
+
+@bot.slash_command(name="prize_movie", description="Send a Movie Request prize message")
+async def prize_movie(ctx: discord.ApplicationContext):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("You need Administrator to use this.", ephemeral=True)
+
+    content = (
+        "**YOU'VE FOUND A PRIZE!**\n"
+        "Prize: *Movie Request*\n"
+        "Drop Rate: *Common*"
+    )
+    await ctx.respond(content, view=MoviePrizeView())
+
+
+@bot.slash_command(name="prize_nitro", description="Send a Nitro Basic prize message")
+async def prize_nitro(ctx: discord.ApplicationContext):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("You need Administrator to use this.", ephemeral=True)
+
+    content = (
+        "**YOU'VE FOUND A PRIZE!**\n"
+        "Prize: *Month of Nitro Basic*\n"
+        "Drop Rate: *Uncommon*"
+    )
+    await ctx.respond(content, view=NitroPrizeView())
+
+
+@bot.slash_command(name="prize_steam", description="Send a Steam Gift Card prize message")
+async def prize_steam(ctx: discord.ApplicationContext):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("You need Administrator to use this.", ephemeral=True)
+
+    content = (
+        "**YOU'VE FOUND A PRIZE!**\n"
+        "Prize: *Steam Gift Card*\n"
+        "Drop Rate: *Rare*"
+    )
+    await ctx.respond(content, view=SteamPrizeView())
+
+# ────────────────────── MANUAL PRIZE ANNOUNCE ──────────────────────
+
+PRIZE_DEFS = {
+    "Movie Request": "Common",
+    "Month of Nitro Basic": "Uncommon",
+    "Steam Gift Card": "Rare",
+}
+
+@bot.slash_command(
+    name="prize_announce",
+    description="Manually announce a predefined prize winner in this channel"
+)
+async def prize_announce(
+    ctx: discord.ApplicationContext,
+    member: discord.Option(discord.Member, "User who won the prize", required=True),
+    prize: discord.Option(
+        str,
+        "Select a prize",
+        choices=list(PRIZE_DEFS.keys()),
+        required=True,
+    ),
+):
+    # Admin check
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("You need Administrator to use this.", ephemeral=True)
+
+    guild = ctx.guild
+    if guild is None:
+        return await ctx.respond("This command can only be used in a server.", ephemeral=True)
+
+    # Map prize -> rarity
+    gift_title = prize
+    rarity = PRIZE_DEFS.get(prize, "Unknown")
+
+    # Dead Chat role mention (if configured)
+    dead_role = guild.get_role(DEAD_CHAT_ROLE_ID)
+    role_mention = dead_role.mention if dead_role else "the Dead Chat role"
+
+    # Send in the channel where the command was used
+    ch = ctx.channel
+
+    await ch.send(
+        f"{member.mention} has won a **{gift_title}** with {role_mention}! *Drop Rate: {rarity}*"
+    )
+
+    await ctx.respond("Prize announcement sent.", ephemeral=True)
+
 # ────────────────────── STICKY NOTES ──────────────────────
 
 sticky_messages: dict[int, int] = {}
