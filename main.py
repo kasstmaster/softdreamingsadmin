@@ -205,25 +205,68 @@ class SteamPrizeView(BasePrizeView):
     gift_title = "Steam Gift Card"
     rarity = "Rare"
 
+# ────────────────────── EDIT BOT MSG ──────────────────────
+
 @bot.slash_command(
     name="editbotmsg",
-    description="Edit a message previously sent by this bot"
+    description="Edit a message previously sent by this bot (paste message link)"
 )
 async def editbotmsg(
     ctx: discord.ApplicationContext,
-    channel: discord.Option(discord.TextChannel, "Channel containing the message", required=True),
-    message_id: discord.Option(str, "Message ID to edit", required=True),
-    new_text: discord.Option(str, "New message content", required=True),
+    message_link: discord.Option(
+        str,
+        "Message link or ID (right-click → Copy Message Link)",
+        required=True,
+    ),
+    new_text: discord.Option(
+        str,
+        "New message content",
+        required=True,
+    ),
 ):
     # Admin check
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator to use this.", ephemeral=True)
 
-    # Fetch message
+    guild = ctx.guild
+    if guild is None:
+        return await ctx.respond("This command can only be used in a server.", ephemeral=True)
+
+    # Try to parse link or bare ID
+    channel_id = None
+    message_id = None
+
+    # Full link: https://discord.com/channels/guild_id/channel_id/message_id
+    if "discord.com/channels/" in message_link:
+        try:
+            parts = message_link.strip().split("/")
+            # ... /channels/{guild}/{channel}/{message}
+            link_guild_id = int(parts[-3])
+            channel_id = int(parts[-2])
+            message_id = int(parts[-1])
+
+            if link_guild_id != guild.id:
+                return await ctx.respond(
+                    "That message link is from a different server.",
+                    ephemeral=True
+                )
+        except Exception:
+            return await ctx.respond("I couldn't parse that message link.", ephemeral=True)
+    else:
+        # If they pasted just a numeric ID, fail with a helpful message
+        return await ctx.respond(
+            "Please paste the full **message link** (Right-click → Copy Message Link).",
+            ephemeral=True
+        )
+
+    channel = guild.get_channel(channel_id)
+    if channel is None:
+        return await ctx.respond("I can't find that channel.", ephemeral=True)
+
     try:
-        msg = await channel.fetch_message(int(message_id))
+        msg = await channel.fetch_message(message_id)
     except Exception:
-        return await ctx.respond("Could not fetch that message. Check channel + ID.", ephemeral=True)
+        return await ctx.respond("I couldn't fetch that message. Check the link.", ephemeral=True)
 
     # Ensure it's from *this* bot
     if msg.author != bot.user:
@@ -236,8 +279,6 @@ async def editbotmsg(
         return await ctx.respond(f"Failed to edit message: `{e}`", ephemeral=True)
 
     await ctx.respond("Message updated.", ephemeral=True)
-
-
 
 # ────────────────────── PRIZE SLASH COMMANDS ──────────────────────
 
