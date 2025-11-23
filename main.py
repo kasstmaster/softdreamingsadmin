@@ -96,6 +96,11 @@ DEAD_CHAT_IDLE_SECONDS = int(os.getenv("DEAD_CHAT_IDLE_SECONDS", "600"))  # defa
 # Cooldown between wins for the same user (seconds)
 DEAD_CHAT_COOLDOWN_SECONDS = int(os.getenv("DEAD_CHAT_COOLDOWN_SECONDS", "0"))  # e.g. 1800 for 30 min
 
+# Users completely ignored by Dead Chat (their messages don't reset timer and can't win)
+IGNORE_MEMBER_IDS = {
+    775970689525612555
+}
+
 # State
 dead_last_message_time: dict[int, datetime] = {}          # per channel id
 dead_current_holder_id: int | None = None
@@ -564,14 +569,19 @@ async def initialize_dead_chat():
 
         try:
             async for msg in ch.history(limit=50):
-                if not msg.author.bot:
-                    dead_last_message_time[chan_id] = msg.created_at
-                    break
+                # Ignore bots and ignored users
+                if msg.author.bot:
+                    continue
+                if msg.author.id in IGNORE_MEMBER_IDS:
+                    continue
+
+                dead_last_message_time[chan_id] = msg.created_at
+                break
         except discord.Forbidden:
             print(f"DeadChat: no permission to read history in {chan_id}")
             continue
 
-        # If no non-bot message found, use now
+        # If no non-bot / non-ignored message found, use now
         dead_last_message_time.setdefault(chan_id, discord.utils.utcnow())
         dead_last_notice_message_ids.setdefault(chan_id, None)
 
@@ -586,6 +596,11 @@ async def handle_dead_chat_message(message: discord.Message):
 
     channel = message.channel
     if channel.id not in DEAD_CHAT_CHANNEL_IDS:
+        return
+
+    # Completely ignore certain users (their messages do NOT reset timer
+    # and they can NOT win Dead Chat)
+    if message.author.id in IGNORE_MEMBER_IDS:
         return
 
     now = discord.utils.utcnow()
