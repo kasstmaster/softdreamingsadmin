@@ -218,10 +218,13 @@ async def editbotmsg(
 
 @bot.slash_command(name="info", description="Show all features of the bot")
 async def info(ctx: discord.ApplicationContext):
+    # The Members pfp you wanted
+    MEMBERS_ICON = "https://images-ext-1.discordapp.net/external/2i-PtcLgl_msR0VTT2mGn_5dtQiC9DK56PxR4uJfCLI/%3Fsize%3D1024/https/cdn.discordapp.com/avatars/1440914703894188122/ff746b98459152a0ba7c4eff5530cd9d.png?format=webp&quality=lossless&width=534&height=534"
+
     embed = discord.Embed(
         title="Admins - Bot Features",
         description="Here's everything I can do in this server!",
-        color=0xf10790
+        color=0xf10790  # Hot pink
     )
 
     embed.add_field(
@@ -233,7 +236,6 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Boost & VIP Announcements",
         value=(
@@ -242,7 +244,6 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Dead Chat Role Game",
         value=(
@@ -254,20 +255,18 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Prize Drop System",
         value=(
             "• Admins can drop clickable prize messages:\n"
-            "   ┣ Movie Request (Common)\n"
-            "   ┣ 1 Month Nitro Basic (Uncommon)\n"
-            "   ┗ Steam Gift Card (Rare)\n"
+            " ┣ Movie Request (Common)\n"
+            " ┣ 1 Month Nitro Basic (Uncommon)\n"
+            " ┗ Steam Gift Card (Rare)\n"
             "• First person to click **Claim** wins it instantly\n"
             "• Message deletes itself + public winner announcement"
         ),
         inline=False
     )
-
     embed.add_field(
         name="Admin Prize Tools",
         value=(
@@ -278,7 +277,6 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Sticky Notes",
         value=(
@@ -288,7 +286,6 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Reaction Roles",
         value=(
@@ -297,7 +294,6 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Twitch Live Announcements",
         value=(
@@ -307,7 +303,6 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Admin Utilities",
         value=(
@@ -317,15 +312,21 @@ async def info(ctx: discord.ApplicationContext):
         ),
         inline=False
     )
-
     embed.add_field(
         name="Moderation Logging",
         value="Logs bans, kicks, and voluntary leaves to a private mod channel",
         inline=False
     )
 
-    embed.set_thumbnail(url=bot.user.display_avatar.url)
-    embed.set_footer(text=f"Requested by {ctx.author.display_name} • Bot by Soft Dreamings", icon_url=ctx.author.display_avatar.url)
+    # Use the Members icon as thumbnail
+    embed.set_thumbnail(url=MEMBERS_ICON)
+
+    # Use the Members icon in the footer instead of the user's avatar
+    embed.set_footer(
+        text=f"Requested by {ctx.author.display_name} • Bot by Soft Dreamings",
+        icon_url=MEMBERS_ICON
+    )
+
     embed.timestamp = datetime.utcnow()
 
     await ctx.respond(embed=embed)
