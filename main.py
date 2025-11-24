@@ -110,7 +110,7 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
     await ctx.channel.send(message.replace("\\n", "\n"))
     await ctx.respond("Sent!", ephemeral=True)
 
-# ────────────────────── /birthday_announce COMMAND ──────────────────────
+# ────────────────────── COMMANDS ──────────────────────
 
 @bot.slash_command(
     name="birthday_announce",
@@ -141,69 +141,6 @@ async def birthday_announce(
 
     await ctx.respond(f"Sent birthday message for {member.mention}.", ephemeral=True)
 
-# ────────────────────── PRIZE VIEWS ──────────────────────
-
-class BasePrizeView(discord.ui.View):
-    gift_title: str = ""
-    rarity: str = ""
-
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Claim Your Prize!", style=discord.ButtonStyle.primary)
-    async def claim_button(
-        self,
-        button: discord.ui.Button,
-        interaction: discord.Interaction
-    ):
-        guild = interaction.guild
-        if guild is None:
-            return await interaction.response.send_message(
-                "This can only be used in a server.",
-                ephemeral=True
-            )
-
-        # Delete the prize message
-        try:
-            await interaction.message.delete()
-        except Exception:
-            pass
-
-        # Get Dead Chat role mention
-        dead_role = guild.get_role(DEAD_CHAT_ROLE_ID)
-        role_mention = dead_role.mention if dead_role else "the Dead Chat role"
-
-        # Winner announcement
-        ch = guild.get_channel(WELCOME_CHANNEL_ID)
-        if ch:
-            await ch.send(
-                f"<:prize:1441586959909781666> {interaction.user.mention} has won a **{self.gift_title}** "
-                f"with the {role_mention} role!\n"
-                f"-# *Drop Rate: {self.rarity}*"
-            )
-
-        # Ephemeral confirmation
-        await interaction.response.send_message(
-            f"You claimed a **{self.gift_title}**!",
-            ephemeral=True
-        )
-
-
-class MoviePrizeView(BasePrizeView):
-    gift_title = "Movie Request"
-    rarity = "Common"
-
-
-class NitroPrizeView(BasePrizeView):
-    gift_title = "Month of Nitro Basic"
-    rarity = "Uncommon"
-
-
-class SteamPrizeView(BasePrizeView):
-    gift_title = "Steam Gift Card"
-    rarity = "Rare"
-
-# ────────────────────── EDIT BOT MSG ──────────────────────
 
 @bot.slash_command(
     name="editbotmsg",
@@ -278,7 +215,182 @@ async def editbotmsg(
 
     await ctx.respond("Message updated.", ephemeral=True)
 
-# ────────────────────── PRIZE SLASH COMMANDS ──────────────────────
+
+@bot.slash_command(name="info", description="Show all features of the bot")
+async def info(ctx: discord.ApplicationContext):
+    embed = discord.Embed(
+        title="Soft Dreamings Bot Features",
+        description="Here's everything I can do in this server!",
+        color=0x9b59b6  # Soft purple to match the vibe
+    )
+
+    embed.add_field(
+        name="Welcome & Auto-Roles",
+        value=(
+            "• Sends a custom welcome message in a set channel when anyone joins\n"
+            "• Instantly gives a specific role to new **bots**\n"
+            "• Gives a role to new **human** members after exactly **24 hours**"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Boost & VIP Announcements",
+        value=(
+            "• Announces when someone boosts the server (custom message)\n"
+            "• Announces when someone gets the watched **VIP** role"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Dead Chat Role Game",
+        value=(
+            "• Monitors specific channels\n"
+            "• If no one talks for **X minutes** (default 10), the next person to speak **steals** the **Dead Chat** role\n"
+            "• Optional per-user cooldown (same person can’t win too often)\n"
+            "• Ignores certain users completely\n"
+            "• Posts a funny notice + mentions random prize chance when someone steals it"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Prize Drop System",
+        value=(
+            "• Admins can drop clickable prize messages:\n"
+            "   • Movie Request (Common)\n"
+            "   • 1 Month Nitro Basic (Uncommon)\n"
+            "   • Steam Gift Card (Rare)\n"
+            "• First person to click **Claim** wins it instantly\n"
+            "• Message deletes itself + public winner announcement"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Admin Prize Tools",
+        value=(
+            "• </prize_movie:1441585580776624168> – Drop a Movie Request prize\n"
+            "• </prize_nitro:1441585580776624169> – Drop a 1-month Nitro Basic prize\n"
+            "• </prize_steam:1441585580776624170> – Drop a Steam Gift Card prize\n"
+            "• </prize_announce:1441585580776624171> – Manually announce any winner"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Sticky Notes",
+        value=(
+            "• `/sticky set <text>` – Pins a message that re-posts itself after every new message\n"
+            "• `/sticky clear` – Removes it\n"
+            "• Persists across bot restarts"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Reaction Roles",
+        value=(
+            "• Automatically adds/removes roles when people react to configured messages\n"
+            "• Bot adds the reactions on startup if missing"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Twitch Live Announcements",
+        value=(
+            "• Watches multiple Twitch channels\n"
+            "• Announces with **@everyone** the moment any go live\n"
+            "• Only once per stream • Uses Twitch Helix API directly"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Admin Utilities",
+        value=(
+            "• </say:1441148445758066772> – Make the bot speak anywhere\n"
+            "• </editbotmsg:1441591045245632544> – Edit any previous bot message\n"
+            "• </birthday_announce:1441579122257035276> – Manually send a birthday message"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Moderation Logging",
+        value="Logs bans, kicks, and voluntary leaves to a private mod channel",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    embed.set_footer(text=f"Requested by {ctx.author.display_name} • Bot by Soft Dreamings", icon_url=ctx.author.display_avatar.url)
+    embed.timestamp = datetime.utcnow()
+
+    await ctx.respond(embed=embed)
+
+# ────────────────────── PRIZE VIEWS ──────────────────────
+
+class BasePrizeView(discord.ui.View):
+    gift_title: str = ""
+    rarity: str = ""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Claim Your Prize!", style=discord.ButtonStyle.primary)
+    async def claim_button(
+        self,
+        button: discord.ui.Button,
+        interaction: discord.Interaction
+    ):
+        guild = interaction.guild
+        if guild is None:
+            return await interaction.response.send_message(
+                "This can only be used in a server.",
+                ephemeral=True
+            )
+
+        # Delete the prize message
+        try:
+            await interaction.message.delete()
+        except Exception:
+            pass
+
+        # Get Dead Chat role mention
+        dead_role = guild.get_role(DEAD_CHAT_ROLE_ID)
+        role_mention = dead_role.mention if dead_role else "the Dead Chat role"
+
+        # Winner announcement
+        ch = guild.get_channel(WELCOME_CHANNEL_ID)
+        if ch:
+            await ch.send(
+                f"<:prize:1441586959909781666> {interaction.user.mention} has won a **{self.gift_title}** "
+                f"with the {role_mention} role!\n"
+                f"-# *Drop Rate: {self.rarity}*"
+            )
+
+        # Ephemeral confirmation
+        await interaction.response.send_message(
+            f"You claimed a **{self.gift_title}**!",
+            ephemeral=True
+        )
+
+
+class MoviePrizeView(BasePrizeView):
+    gift_title = "Movie Request"
+    rarity = "Common"
+
+
+class NitroPrizeView(BasePrizeView):
+    gift_title = "Month of Nitro Basic"
+    rarity = "Uncommon"
+
+
+class SteamPrizeView(BasePrizeView):
+    gift_title = "Steam Gift Card"
+    rarity = "Rare"
 
 @bot.slash_command(name="prize_movie", description="Send a Movie Request prize message")
 async def prize_movie(ctx: discord.ApplicationContext):
