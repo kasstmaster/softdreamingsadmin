@@ -774,7 +774,7 @@ async def handle_dead_chat_message(message: discord.Message):
     # Post new notice in current channel
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
     notice = await channel.send(
-    f"{member.mention} has stolen the {role.mention} role after {minutes} minutes of silence.\n"
+    f"{member.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
     f"-# There's a random chance to win prizes with this role."
     )
     dead_last_notice_message_ids[channel.id] = notice.id
