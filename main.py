@@ -323,7 +323,7 @@ async def info(ctx: discord.ApplicationContext):
 
     # Use the Members icon in the footer instead of the user's avatar
     embed.set_footer(
-        text=f"Requested by {ctx.author.display_name} • Bot by Soft Dreamings",
+        text=f"• Bot by Soft Dreamings",
         icon_url=MEMBERS_ICON
     )
 
