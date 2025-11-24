@@ -104,26 +104,28 @@ dead_last_win_time: dict[int, datetime] = {}              # per user id
 
 @bot.slash_command(
     name="say",
-    description="Make the bot say something right here",
+    description="Make the bot say something (supports up to 3 lines)",
 )
 async def say(
     ctx: discord.ApplicationContext,
-    message: discord.Option(
-        str,
-        "Message to send (use \\n for new lines)",
-        required=True,
-        sanitize=False
-    ),
+    line1: discord.Option(str, "First line", required=True),
+    line2: discord.Option(str, "Second line (optional)", required=False, default=None),
+    line3: discord.Option(str, "Third line (optional)", required=False, default=None),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator.", ephemeral=True)
 
-    # Convert \n → actual line breaks
-    text = message.replace("\\n", "\n")
+    parts = [line1]
+    if line2:
+        parts.append(line2)
+    if line3:
+        parts.append(line3)
+
+    text = "\n".join(parts)
 
     await ctx.channel.send(text)
     await ctx.respond("Sent!", ephemeral=True)
-
+    
 # ────────────────────── /birthday_announce COMMAND ──────────────────────
 
 @bot.slash_command(
