@@ -107,7 +107,7 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator.", ephemeral=True)
     
-    await ctx.channel.send(message)
+    await ctx.channel.send(message.replace("\\n", "\n"))
     await ctx.respond("Sent!", ephemeral=True)
 
 # ────────────────────── /birthday_announce COMMAND ──────────────────────
