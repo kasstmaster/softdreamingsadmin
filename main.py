@@ -1,5 +1,3 @@
-What changes should I make
-
 import discord
 import os
 import asyncio
