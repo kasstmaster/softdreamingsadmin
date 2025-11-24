@@ -1,3 +1,5 @@
+What changes should I make
+
 import discord
 import os
 import asyncio
@@ -102,30 +104,14 @@ dead_last_win_time: dict[int, datetime] = {}              # per user id
 
 # ────────────────────── /say COMMAND ──────────────────────
 
-@bot.slash_command(
-    name="say",
-    description="Make the bot say something (supports up to 3 lines)",
-)
-async def say(
-    ctx: discord.ApplicationContext,
-    line1: discord.Option(str, "First line", required=True),
-    line2: discord.Option(str, "Second line (optional)", required=False, default=None),
-    line3: discord.Option(str, "Third line (optional)", required=False, default=None),
-):
+@bot.slash_command(name="say", description="Make the bot say something right here")
+async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("You need Administrator.", ephemeral=True)
-
-    parts = [line1]
-    if line2:
-        parts.append(line2)
-    if line3:
-        parts.append(line3)
-
-    text = "\n".join(parts)
-
-    await ctx.channel.send(text)
-    await ctx.respond("Sent!", ephemeral=True)
     
+    await ctx.channel.send(message.replace("\\n", "\n"))
+    await ctx.respond("Sent!", ephemeral=True)
+
 # ────────────────────── /birthday_announce COMMAND ──────────────────────
 
 @bot.slash_command(
