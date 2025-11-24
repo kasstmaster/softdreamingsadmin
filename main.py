@@ -25,11 +25,6 @@ WELCOME_TEXT = os.getenv("WELCOME_TEXT")
 BOOST_TEXT   = os.getenv("BOOST_TEXT")
 VIP_TEXT     = os.getenv("VIP_TEXT")
 
-STATUS_VC_ID = int(os.getenv("STATUS_VC_ID"))
-STATUS_LOG_CHANNEL_ID = int(os.getenv("STATUS_LOG_CHANNEL_ID"))
-BUTTON_3_LABEL = os.getenv("BUTTON_3_LABEL")
-BUTTON_3_URL   = os.getenv("BUTTON_3_URL")
-
 MEMBER_JOIN_ROLE_ID = int(os.getenv("MEMBER_JOIN_ROLE_ID"))  # role after 24h
 BOT_JOIN_ROLE_ID    = int(os.getenv("BOT_JOIN_ROLE_ID"))     # role instantly for bots
 
@@ -684,7 +679,6 @@ async def handle_dead_chat_message(message: discord.Message):
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online and ready!")
-    bot.loop.create_task(status_updater())
     bot.loop.create_task(twitch_watcher())
 
     # Reaction roles: add reactions to the configured message
@@ -891,67 +885,6 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         await member.remove_roles(role, reason="Reaction role removed")
     except discord.HTTPException:
         pass
-
-# ────────────────────── STATUS UPDATE MSG ──────────────────────
-
-async def status_updater():
-    await bot.wait_until_ready()
-    print("Channel Status updater STARTED — no spam on restart, silent when empty")
-
-    vc = bot.get_channel(STATUS_VC_ID)
-    initial_status = None
-    if vc and isinstance(vc, discord.VoiceChannel):
-        initial_status = str(vc.status or "").strip()
-        if initial_status:
-            print(f"Bot started → current status is '{initial_status}' → no auto-message")
-        else:
-            print("Bot started → status is empty → staying silent")
-    last_status = initial_status if initial_status else None
-
-    while not bot.is_closed():
-        await asyncio.sleep(10)
-
-        if STATUS_VC_ID == 0 or STATUS_LOG_CHANNEL_ID == 0:
-            continue
-
-        vc = bot.get_channel(STATUS_VC_ID)
-        log_ch = bot.get_channel(STATUS_LOG_CHANNEL_ID)
-        if not vc or not log_ch or not isinstance(vc, discord.VoiceChannel):
-            continue
-
-        raw_status = str(vc.status or "").strip()
-
-        if not raw_status:
-            if last_status is not None:
-                print("Status cleared → staying silent")
-                last_status = None
-            continue
-
-        if raw_status == last_status:
-            continue
-
-        embed = discord.Embed(color=0x2e2f33)
-        embed.title = raw_status
-        embed.description = (
-            "Playing all day. Feel free to coordinate with others in chat "
-            "if you want to plan a group watch later in the day."
-        )
-        embed.set_footer(text=f"Updated • {discord.utils.utcnow().strftime('%b %d • %I:%M %p UTC')}")
-
-        view = discord.ui.View(timeout=None)
-        view.add_item(
-            discord.ui.Button(
-                label=BUTTON_3_LABEL,
-                url=BUTTON_3_URL,
-                style=discord.ButtonStyle.link,
-                emoji="🎟️",
-            )
-        )
-        
-        await log_ch.send(embed=embed, view=view)
-        print(f"New status → '{raw_status}' → fresh message sent")
-
-        last_status = raw_status
 
 # ────────────────────── TWITCH API HELPERS ──────────────────────
 
