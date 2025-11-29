@@ -203,10 +203,9 @@ async def handle_dead_chat_message(message: discord.Message):
         last_win = dead_last_win_time.get(message.author.id)
         if last_win and (now - last_win).total_seconds() < DEAD_CHAT_COOLDOWN_SECONDS:
             return
-    if dead_current_holder_id:
-        prev = message.guild.get_member(dead_current_holder_id)
-        if prev and role in prev.roles:
-            await prev.remove_roles(role, reason="Dead Chat stolen")
+    for member in list(role.members):
+        if member.id != message.author.id:
+            await member.remove_roles(role, reason="Dead Chat stolen")
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
