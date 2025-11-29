@@ -41,7 +41,7 @@ BOOST_TEXT = os.getenv("BOOST_TEXT")
 VIP_TEXT = os.getenv("VIP_TEXT")
 MEMBER_JOIN_ROLE_ID = int(os.getenv("MEMBER_JOIN_ROLE_ID"))
 BOT_JOIN_ROLE_ID = int(os.getenv("BOT_JOIN_ROLE_ID"))
-VOICE_CHAT_CHANNEL_ID = 1331501272804884490
+AUTO_DELETE_CHANNEL_IDS = [1331501272804884490, 1444194142589554841, 1444206974395748423]
 DELETE_DELAY_SECONDS = 300
 
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
@@ -369,7 +369,7 @@ async def on_message(message: discord.Message):
         new_msg = await message.channel.send(sticky_texts[message.channel.id])
         sticky_messages[message.channel.id] = new_msg.id
         await save_stickies()
-    if message.channel.id == VOICE_CHAT_CHANNEL_ID:
+    if message.channel.id in AUTO_DELETE_CHANNEL_IDS:
         async def delete_later():
             await asyncio.sleep(DELETE_DELAY_SECONDS)
             try:
