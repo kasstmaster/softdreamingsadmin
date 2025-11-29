@@ -64,6 +64,8 @@ if _raw_pairs:
 
 MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
 
+BOT_LOG_CHANNEL_ID = int(os.getenv("BOT_LOG_CHANNEL_ID", "0"))  # NEW
+
 
 async def log_to_thread(content: str):
     """Send a log message to the configured moderation log thread."""
@@ -75,6 +77,22 @@ async def log_to_thread(content: str):
         await channel.send(content)
     except Exception as e:
         print(f"Failed to send log message: {e}")
+
+
+async def log_to_bot_channel(content: str):
+    """Send a log message to the bot-log text channel."""
+    if BOT_LOG_CHANNEL_ID == 0:
+        # Fallback: if not configured, just dump into main log
+        return await log_to_thread(f"[BOT] {content}")
+
+    channel = bot.get_channel(BOT_LOG_CHANNEL_ID)
+    if not channel:
+        print("Bot log channel not found.")
+        return
+    try:
+        await channel.send(content)
+    except Exception as e:
+        print(f"Failed to send bot log message: {e}")
 
 # ────────────────────── DEAD CHAT CONFIG ──────────────────────
 
@@ -888,20 +906,28 @@ async def on_message(message: discord.Message):
 @bot.event
 async def on_member_join(member: discord.Member):
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
+
+    # Bots
+    if member.bot:
+        await log_to_bot_channel(
+            f"Bot joined: {member.mention} (ID: {member.id})"
+        )
+
+        if BOT_JOIN_ROLE_ID:
+            role = member.guild.get_role(BOT_JOIN_ROLE_ID)
+            if role:
+                try:
+                    await member.add_roles(role, reason="Bot auto-role")
+                except:
+                    pass
+        return
+
+    # Humans
     if ch:
         msg = WELCOME_TEXT.replace("{mention}", member.mention)
         await ch.send(msg)
 
-    if member.bot and BOT_JOIN_ROLE_ID:
-        role = member.guild.get_role(BOT_JOIN_ROLE_ID)
-        if role:
-            try:
-                await member.add_roles(role, reason="Bot auto-role")
-            except:
-                pass
-        return
-
-    if not member.bot and MEMBER_JOIN_ROLE_ID:
+    if MEMBER_JOIN_ROLE_ID:
         async def give_delayed_role():
             await asyncio.sleep(86400)  # 24 hours
             role = member.guild.get_role(MEMBER_JOIN_ROLE_ID)
@@ -928,7 +954,12 @@ async def on_member_ban(guild: discord.Guild, user: discord.User):
         pass
 
     mod_text = moderator.mention if moderator else "Unknown"
-    await log_to_thread(f"{user.mention} was banned by {mod_text}")
+    text = f"{user.mention} was banned by {mod_text}"
+
+    if user.bot:
+        await log_to_bot_channel(text)
+    else:
+        await log_to_thread(text)
 
 
 @bot.event
@@ -937,6 +968,7 @@ async def on_member_remove(member: discord.Member):
     guild = member.guild
     now = discord.utils.utcnow()
 
+    # Skip if it was actually a ban
     try:
         async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.ban):
             if entry.target.id == member.id:
@@ -957,11 +989,13 @@ async def on_member_remove(member: discord.Member):
     except discord.Forbidden:
         pass
 
+    log_fn = log_to_bot_channel if member.bot else log_to_thread
+
     if is_kick:
         mod_text = moderator.mention if moderator else "Unknown"
-        await log_to_thread(f"{member.mention} was kicked by {mod_text}")
+        await log_fn(f"{member.mention} was kicked by {mod_text}")
     else:
-        await log_to_thread(f"{member.mention} has left the server")
+        await log_fn(f"{member.mention} has left the server")
 
 # ────────────────────── REACTION ROLE EVENTS ──────────────────────
 
