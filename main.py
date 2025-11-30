@@ -490,28 +490,26 @@ async def birthday_announce(ctx, member: discord.Option(discord.Member, "Member"
     await ch.send(msg)
     await ctx.respond(f"Sent birthday message for {member.mention}.", ephemeral=True)
 
-@bot.slash_command(name="editbotmsg", description="Edit a message previously sent by this bot")
-async def editbotmsg(ctx, message_link: discord.Option(str, "Message link", required=True), new_text: discord.Option(str, "New content", required=True)):
-    if not ctx.author.guild_permissions.administrator:
-        return await ctx.respond("You need Administrator.", ephemeral=True)
-    if "discord.com/channels/" not in message_link:
-        return await ctx.respond("Please provide a full message link.", ephemeral=True)
+@bot.slash_command(name="editbotmsg", description="Edit a bot message in this channel with 4 lines")
+async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, line4: str,):
+    if not (ctx.author.guild_permissions.administrator or ctx.guild.owner_id == ctx.author.id):
+        return await ctx.respond("Admin only.", ephemeral=True)
     try:
-        parts = message_link.strip().split("/")
-        channel_id = int(parts[-2])
-        message_id = int(parts[-1])
-    except Exception:
-        return await ctx.respond("Invalid message link.", ephemeral=True)
-    channel = ctx.guild.get_channel(channel_id)
-    if not channel:
-        return await ctx.respond("Channel not found.", ephemeral=True)
+        msg_id_int = int(message_id)
+    except ValueError:
+        return await ctx.respond("Invalid message ID.", ephemeral=True)
     try:
-        msg = await channel.fetch_message(message_id)
-    except Exception:
-        return await ctx.respond("Message not found.", ephemeral=True)
-    if msg.author != bot.user:
-        return await ctx.respond("I can only edit my own messages.", ephemeral=True)
-    await msg.edit(content=new_text)
+        msg = await ctx.channel.fetch_message(msg_id_int)
+    except discord.NotFound:
+        return await ctx.respond("Message not found in this channel.", ephemeral=True)
+    except discord.Forbidden:
+        return await ctx.respond("I cannot access that message.", ephemeral=True)
+    except discord.HTTPException:
+        return await ctx.respond("Error fetching that message.", ephemeral=True)
+    if msg.author.id != bot.user.id:
+        return await ctx.respond("That message was not sent by me.", ephemeral=True)
+    new_content = "\n".join([line1, line2, line3, line4])
+    await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
 
 @bot.slash_command(name="prize_movie")
