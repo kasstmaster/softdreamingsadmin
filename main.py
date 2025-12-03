@@ -263,6 +263,15 @@ async def save_prize_storage():
         except:
             pass
 
+def get_prize_list_and_entries(prize_type: str):
+    if prize_type == "movie":
+        return movie_scheduled_prizes
+    if prize_type == "nitro":
+        return nitro_scheduled_prizes
+    if prize_type == "steam":
+        return steam_scheduled_prizes
+    return None
+
 async def run_scheduled_prize(prize_type: str, prize_id: int):
     if prize_type == "movie":
         entries = movie_scheduled_prizes
@@ -689,6 +698,43 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
     new_content = "\n".join([line1, line2, line3, line4])
     await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
+
+@bot.slash_command(name="prize_list", description="List scheduled prizes")
+async def prize_list(
+    ctx,
+    prize_type: discord.Option(str, choices=["movie", "nitro", "steam"], required=True),
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    entries = get_prize_list_and_entries(prize_type)
+    if not entries:
+        return await ctx.respond("No scheduled prizes.", ephemeral=True)
+    if len(entries) == 0:
+        return await ctx.respond("No scheduled prizes.", ephemeral=True)
+    lines = []
+    for p in entries:
+        lines.append(f"ID {p['id']} ┃ {p['send_at']} UTC ┃ <#{p['channel_id']}>")
+    text = "\n".join(lines)
+    await ctx.respond(f"Scheduled {prize_type} prizes:\n{text}", ephemeral=True)
+
+@bot.slash_command(name="prize_delete", description="Delete a scheduled prize")
+async def prize_delete(
+    ctx,
+    prize_type: discord.Option(str, choices=["movie", "nitro", "steam"], required=True),
+    prize_id: discord.Option(int, "ID from /prize_list", required=True),
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    entries = get_prize_list_and_entries(prize_type)
+    if entries is None:
+        return await ctx.respond("Invalid prize type.", ephemeral=True)
+    before = len(entries)
+    entries[:] = [p for p in entries if p.get("id") != prize_id]
+    after = len(entries)
+    if before == after:
+        return await ctx.respond("No prize with that ID.", ephemeral=True)
+    await save_prize_storage()
+    await ctx.respond(f"Deleted scheduled {prize_type} prize ID {prize_id}.", ephemeral=True)
 
 @bot.slash_command(name="prize_movie")
 async def prize_movie(
