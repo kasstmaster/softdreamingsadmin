@@ -80,6 +80,8 @@ DEAD_CHAT_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("DEAD_CHAT_CHANNEL_ID
 DEAD_CHAT_IDLE_SECONDS = int(os.getenv("DEAD_CHAT_IDLE_SECONDS", "600"))
 DEAD_CHAT_COOLDOWN_SECONDS = int(os.getenv("DEAD_CHAT_COOLDOWN_SECONDS", "0"))
 IGNORE_MEMBER_IDS = {int(x.strip()) for x in os.getenv("IGNORE_MEMBER_IDS", "").split(",") if x.strip().isdigit()}
+MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
 
 STICKY_STORAGE_CHANNEL_ID = int(os.getenv("STICKY_STORAGE_CHANNEL_ID", "0"))
 
@@ -98,6 +100,12 @@ dead_last_message_time: dict[int, datetime] = {}
 dead_current_holder_id: int | None = None
 dead_last_notice_message_ids: dict[int, int | None] = {}
 dead_last_win_time: dict[int, datetime] = {}
+movie_prize_storage_message_id: int | None = None
+nitro_prize_storage_message_id: int | None = None
+steam_prize_storage_message_id: int | None = None
+movie_scheduled_prizes: list[dict] = []
+nitro_scheduled_prizes: list[dict] = []
+steam_scheduled_prizes: list[dict] = []
 
 sticky_messages: dict[int, int] = {}
 sticky_texts: dict[int, str] = {}
@@ -170,6 +178,150 @@ async def save_stickies():
             entry["message_id"] = sticky_messages[cid]
         data[str(cid)] = entry
     await msg.edit(content="STICKY_DATA:" + json.dumps(data))
+
+def parse_schedule_datetime(when: str) -> datetime | None:
+    try:
+        return datetime.strptime(when, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+async def init_prize_storage():
+    global movie_prize_storage_message_id, nitro_prize_storage_message_id, steam_prize_storage_message_id
+    global movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes
+    if STICKY_STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STICKY_STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return
+    movie_msg = None
+    nitro_msg = None
+    steam_msg = None
+    async for msg in ch.history(limit=100, oldest_first=True):
+        if msg.author != bot.user or not msg.content:
+            continue
+        if msg.content.startswith("PRIZE_MOVIE_DATA:"):
+            movie_msg = msg
+        elif msg.content.startswith("PRIZE_NITRO_DATA:"):
+            nitro_msg = msg
+        elif msg.content.startswith("PRIZE_STEAM_DATA:"):
+            steam_msg = msg
+        if movie_msg and nitro_msg and steam_msg:
+            break
+    if not movie_msg:
+        movie_msg = await ch.send("PRIZE_MOVIE_DATA:[]")
+    if not nitro_msg:
+        nitro_msg = await ch.send("PRIZE_NITRO_DATA:[]")
+    if not steam_msg:
+        steam_msg = await ch.send("PRIZE_STEAM_DATA:[]")
+    movie_prize_storage_message_id = movie_msg.id
+    nitro_prize_storage_message_id = nitro_msg.id
+    steam_prize_storage_message_id = steam_msg.id
+    try:
+        raw = movie_msg.content[len("PRIZE_MOVIE_DATA:"):]
+        data = json.loads(raw or "[]")
+        if isinstance(data, list):
+            movie_scheduled_prizes = data
+    except:
+        pass
+    try:
+        raw = nitro_msg.content[len("PRIZE_NITRO_DATA:"):]
+        data = json.loads(raw or "[]")
+        if isinstance(data, list):
+            nitro_scheduled_prizes = data
+    except:
+        pass
+    try:
+        raw = steam_msg.content[len("PRIZE_STEAM_DATA:"):]
+        data = json.loads(raw or "[]")
+        if isinstance(data, list):
+            steam_scheduled_prizes = data
+    except:
+        pass
+
+async def save_prize_storage():
+    if STICKY_STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STICKY_STORAGE_CHANNEL_ID)
+    if not ch:
+        return
+    if movie_prize_storage_message_id:
+        try:
+            msg = await ch.fetch_message(movie_prize_storage_message_id)
+            await msg.edit(content="PRIZE_MOVIE_DATA:" + json.dumps(movie_scheduled_prizes))
+        except:
+            pass
+    if nitro_prize_storage_message_id:
+        try:
+            msg = await ch.fetch_message(nitro_prize_storage_message_id)
+            await msg.edit(content="PRIZE_NITRO_DATA:" + json.dumps(nitro_scheduled_prizes))
+        except:
+            pass
+    if steam_prize_storage_message_id:
+        try:
+            msg = await ch.fetch_message(steam_prize_storage_message_id)
+            await msg.edit(content="PRIZE_STEAM_DATA:" + json.dumps(steam_scheduled_prizes))
+        except:
+            pass
+
+async def run_scheduled_prize(prize_type: str, prize_id: int):
+    if prize_type == "movie":
+        entries = movie_scheduled_prizes
+        view_cls = MoviePrizeView
+    elif prize_type == "nitro":
+        entries = nitro_scheduled_prizes
+        view_cls = NitroPrizeView
+    elif prize_type == "steam":
+        entries = steam_scheduled_prizes
+        view_cls = SteamPrizeView
+    else:
+        return
+    record = None
+    for p in entries:
+        if p.get("id") == prize_id:
+            record = p
+            break
+    if not record:
+        return
+    send_at = parse_schedule_datetime(record.get("send_at", ""))
+    if not send_at:
+        return
+    now = datetime.utcnow()
+    delay = (send_at - now).total_seconds()
+    if delay > 0:
+        await asyncio.sleep(delay)
+    channel_id = record.get("channel_id")
+    content = record.get("content")
+    if not channel_id or not content:
+        return
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        return
+    view = view_cls()
+    await channel.send(content, view=view)
+    entries[:] = [p for p in entries if p.get("id") != prize_id]
+    await save_prize_storage()
+
+async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, send_at: datetime):
+    if prize_type == "movie":
+        entries = movie_scheduled_prizes
+    elif prize_type == "nitro":
+        entries = nitro_scheduled_prizes
+    elif prize_type == "steam":
+        entries = steam_scheduled_prizes
+    else:
+        return
+    existing_ids = [p.get("id", 0) for p in entries]
+    new_id = max(existing_ids) + 1 if existing_ids else 1
+    entries.append(
+        {
+            "id": new_id,
+            "channel_id": channel_id,
+            "content": content,
+            "send_at": send_at.strftime("%Y-%m-%d %H:%M"),
+        }
+    )
+    await save_prize_storage()
+    bot.loop.create_task(run_scheduled_prize(prize_type, new_id))
 
 async def initialize_dead_chat():
     global dead_current_holder_id
@@ -345,6 +497,19 @@ async def on_ready():
             break
     await initialize_dead_chat()
     await init_sticky_storage()
+    await init_prize_storage()
+    for p in list(movie_scheduled_prizes):
+        pid = p.get("id")
+        if pid is not None:
+            bot.loop.create_task(run_scheduled_prize("movie", pid))
+    for p in list(nitro_scheduled_prizes):
+        pid = p.get("id")
+        if pid is not None:
+            bot.loop.create_task(run_scheduled_prize("nitro", pid))
+    for p in list(steam_scheduled_prizes):
+        pid = p.get("id")
+        if pid is not None:
+            bot.loop.create_task(run_scheduled_prize("steam", pid))
 
 @bot.event
 async def on_member_update(before, after):
@@ -526,22 +691,94 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
     await ctx.respond("Message updated.", ephemeral=True)
 
 @bot.slash_command(name="prize_movie")
-async def prize_movie(ctx):
+async def prize_movie(
+    ctx,
+    month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
+    day: discord.Option(int, "Day of month", required=False),
+    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
+):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
-    await ctx.respond("**YOU'VE FOUND A PRIZE!**\nPrize: *Movie Request*\nDrop Rate: *Common*", view=MoviePrizeView())
-
+    content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Movie Request*\nDrop Rate: *Common*"
+    if month is None and day is None and hour is None:
+        return await ctx.respond(content, view=MoviePrizeView())
+    if month is None or day is None or hour is None:
+        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    month_num = MONTH_TO_NUM.get(month)
+    if not month_num:
+        return await ctx.respond("Invalid month.", ephemeral=True)
+    now = datetime.utcnow()
+    try:
+        send_at = datetime(now.year, month_num, day, hour, 0)
+    except ValueError:
+        return await ctx.respond("Invalid date.", ephemeral=True)
+    if send_at <= now:
+        try:
+            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+        except ValueError:
+            return await ctx.respond("Invalid date.", ephemeral=True)
+    await add_scheduled_prize("movie", ctx.channel.id, content, send_at)
+    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    
 @bot.slash_command(name="prize_nitro")
-async def prize_nitro(ctx):
+async def prize_nitro(
+    ctx,
+    month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
+    day: discord.Option(int, "Day of month", required=False),
+    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
+):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
-    await ctx.respond("**YOU'VE FOUND A PRIZE!**\nPrize: *Month of Nitro Basic*\nDrop Rate: *Uncommon*", view=NitroPrizeView())
+    content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Month of Nitro Basic*\nDrop Rate: *Uncommon*"
+    if month is None and day is None and hour is None:
+        return await ctx.respond(content, view=NitroPrizeView())
+    if month is None or day is None or hour is None:
+        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    month_num = MONTH_TO_NUM.get(month)
+    if not month_num:
+        return await ctx.respond("Invalid month.", ephemeral=True)
+    now = datetime.utcnow()
+    try:
+        send_at = datetime(now.year, month_num, day, hour, 0)
+    except ValueError:
+        return await ctx.respond("Invalid date.", ephemeral=True)
+    if send_at <= now:
+        try:
+            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+        except ValueError:
+            return await ctx.respond("Invalid date.", ephemeral=True)
+    await add_scheduled_prize("nitro", ctx.channel.id, content, send_at)
+    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
 
 @bot.slash_command(name="prize_steam")
-async def prize_steam(ctx):
+async def prize_steam(
+    ctx,
+    month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
+    day: discord.Option(int, "Day of month", required=False),
+    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
+):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
-    await ctx.respond("**YOU'VE FOUND A PRIZE!**\nPrize: *Steam Gift Card*\nDrop Rate: *Rare*", view=SteamPrizeView())
+    content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Steam Gift Card*\nDrop Rate: *Rare*"
+    if month is None and day is None and hour is None:
+        return await ctx.respond(content, view=SteamPrizeView())
+    if month is None or day is None or hour is None:
+        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    month_num = MONTH_TO_NUM.get(month)
+    if not month_num:
+        return await ctx.respond("Invalid month.", ephemeral=True)
+    now = datetime.utcnow()
+    try:
+        send_at = datetime(now.year, month_num, day, hour, 0)
+    except ValueError:
+        return await ctx.respond("Invalid date.", ephemeral=True)
+    if send_at <= now:
+        try:
+            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+        except ValueError:
+            return await ctx.respond("Invalid date.", ephemeral=True)
+    await add_scheduled_prize("steam", ctx.channel.id, content, send_at)
+    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
 
 @bot.slash_command(name="prize_announce")
 async def prize_announce(ctx, member: discord.Option(discord.Member, required=True), prize: discord.Option(str, choices=list(PRIZE_DEFS.keys()), required=True)):
