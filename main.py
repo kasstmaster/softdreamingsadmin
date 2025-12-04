@@ -706,12 +706,24 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 
 
 ############### COMMAND GROUPS ###############
-@bot.slash_command(name="storage_debug")
-async def storage_debug(ctx):
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not ch:
-        return await ctx.respond(f"get_channel({STORAGE_CHANNEL_ID}) returned None", ephemeral=True)
-    return await ctx.respond(f"Channel object: {ch} (type={type(ch).__name__})", ephemeral=True)
+@bot.slash_command(name="diag", description="Diagnostic test for startup inits")
+async def diag(ctx):
+    await ctx.respond("Running diagnostics...", ephemeral=True)
+    try:
+        await init_sticky_storage()
+        await ctx.followup.send("Sticky init: OK")
+    except Exception as e:
+        await ctx.followup.send(f"Sticky init ERROR: {e}")
+    try:
+        await init_prize_storage()
+        await ctx.followup.send("Prize init: OK")
+    except Exception as e:
+        await ctx.followup.send(f"Prize init ERROR: {e}")
+    try:
+        await init_deadchat_storage()
+        await ctx.followup.send("DeadChat init: OK")
+    except Exception as e:
+        await ctx.followup.send(f"DeadChat init ERROR: {e}")
 
 @bot.slash_command(name="say", description="Make the bot say something right here")
 async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
