@@ -147,22 +147,27 @@ async def init_sticky_storage():
             storage_msg = msg
             break
     if not storage_msg:
-        await log_to_bot_channel("init_sticky_storage: STICKY_DATA message not found. Run /sticky_init first.")
+        await log_to_bot_channel("Sticky storage message not found → Run /sticky_init first")
         return
     sticky_storage_message_id = storage_msg.id
     data_str = storage_msg.content[len("STICKY_DATA:"):]
-    if data_str.strip():
-        try:
-            data = json.loads(data_str)
-            for cid_str, info in data.items():
+    if not data_str.strip():
+        return
+    try:
+        data = json.loads(data_str)
+        sticky_texts.clear()
+        sticky_messages.clear()
+        for cid_str, info in data.items():
+            try:
                 cid = int(cid_str)
-                if "cid" in locals() else cid_str)
                 if info.get("text"):
                     sticky_texts[cid] = info["text"]
                 if info.get("message_id"):
                     sticky_messages[cid] = info["message_id"]
-        except:
-            pass
+            except:
+                continue
+    except Exception as e:
+        await log_to_bot_channel(f"Failed to load sticky data: {e}")
 
 async def save_stickies():
     if STORAGE_CHANNEL_ID == 0 or sticky_storage_message_id is None:
@@ -200,30 +205,29 @@ async def init_prize_storage():
     async for msg in ch.history(limit=100, oldest_first=True):
         if msg.author != bot.user:
             continue
-        if msg.content.startswith("PRIZE_MOVIE_DATA:"):
+        content = msg.content
+        if content.startswith("PRIZE_MOVIE_DATA:"):
             movie_msg = msg
-        elif msg.content.startswith("PRIZE_NITRO_DATA:"):
+        elif content.startswith("PRIZE_NITRO_DATA:"):
             nitro_msg = msg
-        elif msg.content.startswith("PRIZE_STEAM_DATA:"):
+        elif content.startswith("PRIZE_STEAM_DATA:"):
             steam_msg = msg
         if movie_msg and nitro_msg and steam_msg:
             break
     if not (movie_msg and nitro_msg and steam_msg):
-        await log_to_bot_channel("Prize storage messages missing. Run /prize_init first.")
+        await log_to_bot_channel("Prize storage messages missing → Run /prize_init first")
         return
     movie_prize_storage_message_id = movie_msg.id
     nitro_prize_storage_message_id = nitro_msg.id
     steam_prize_storage_message_id = steam_msg.id
-    def load_list(content, prefix):
+    def safe_load(content, prefix):
         try:
-            raw = content[len(prefix):]
-            data = json.loads(raw) if raw else []
-            return data if isinstance(data, list) else []
+            return json.loads(content[len(prefix):]) if content.startswith(prefix) else []
         except:
             return []
-    movie_scheduled_prizes = load_list(movie_msg.content, "PRIZE_MOVIE_DATA:")
-    nitro_scheduled_prizes = load_list(nitro_msg.content, "PRIZE_NITRO_DATA:")
-    steam_scheduled_prizes = load_list(steam_msg.content, "PRIZE_STEAM_DATA:")
+    movie_scheduled_prizes = safe_load(movie_msg.content, "PRIZE_MOVIE_DATA:")
+    nitro_scheduled_prizes = safe_load(nitro_msg.content, "PRIZE_NITRO_DATA:")
+    steam_scheduled_prizes = safe_load(steam_msg.content, "PRIZE_STEAM_DATA:")
 
 async def save_prize_storage():
     if STORAGE_CHANNEL_ID == 0:
@@ -540,7 +544,19 @@ async def on_ready():
     await init_sticky_storage()
     await init_prize_storage()
     await init_deadchat_storage()
-    await initialize_dead_chat()
+    if sticky_storage_message_id is None:
+        print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
+    else:
+        await initialize_dead_chat()
+        for prize_list, prize_type in [
+            (movie_scheduled_prizes, "movie"),
+            (nitro_scheduled_prizes,  "nitro"),
+            (steam_scheduled_prizes,  "steam")
+        ]:
+            for p in prize_list:
+                pid = p.get("id")
+                if pid is not None:
+                    bot.loop.create_task(run_scheduled_prize(prize_type, pid))
     for p in list(movie_scheduled_prizes):
         pid = p.get("id")
         if pid is not None:
