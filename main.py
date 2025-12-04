@@ -451,19 +451,22 @@ async def load_deadchat_state():
     if not deadchat_state_storage_message_id or STORAGE_CHANNEL_ID == 0:
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch:
+        return
     try:
         msg = await ch.fetch_message(deadchat_state_storage_message_id)
-        data = json.loads(msg.content[len("DEADCHAT_STATE:"):])
+        raw = msg.content[len("DEADCHAT_STATE:"):]
+        if not raw.strip():
+            return
+        data = json.loads(raw)
         dead_current_holder_id = data.get("current_holder")
-        dead_last_win_time = {int(k): datetime.fromisoformat(v.replace("Z", "")) for k, v in data.get("last_win_times", {}).items()}
-        dead_last_notice_message_ids = {int(k): v for k, v in data.get("notice_msg_ids", {}).items()}
-        # Give the role back if someone had it
-        if dead_current_holder_id:
-            for guild in bot.guilds:
-                member = guild.get_member(dead_current_holder_id)
-                role = guild.get_role(DEAD_CHAT_ROLE_ID)
-                if member and role and role not in member.roles:
-                    await member.add_roles(role, reason="Restoring Dead Chat role after restart")
+        dead_last_win_time = {}
+        for k, v in data.get("last_win_times", {}).items():
+            try:
+                dead_last_win_time[int(k)] = datetime.fromisoformat(v.replace("Z", ""))
+            except:
+                pass
+        dead_last_notice_message_ids = {int(k): v for k, v in data.get("notice_msg_ids", {}).items() if v}
     except Exception as e:
         await log_to_bot_channel(f"Failed to load DEADCHAT_STATE: {e}")
 
@@ -471,19 +474,19 @@ async def save_deadchat_state():
     if STORAGE_CHANNEL_ID == 0 or deadchat_state_storage_message_id is None:
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, TextChannel):
+    if not ch or not isinstance(ch, TextChannel):
         return
     data = {
         "current_holder": dead_current_holder_id,
-        "last_win_times": {str(k): v.isoformat() + "Z" for k, v in dead_last_win_time.items()},
+        "last_win_times": {str(k): v.isoformat() + "Z for k, v in dead_last_win_time.items()},
         "notice_msg_ids": dead_last_notice_message_ids
     }
     try:
-        try:
-            msg = await ch.fetch_message(deadchat_state_storage_message_id)
+        msg = await ch.fetch_message(deadchat_state_storage_message_id)
         await msg.edit(content="DEADCHAT_STATE:" + json.dumps(data))
     except Exception as e:
         await log_to_bot_channel(f"Deadchat state save failed: {e}")
+
 
 # Twitch state -------------------------------------------------
 async def init_twitch_state_storage():
