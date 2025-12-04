@@ -172,15 +172,15 @@ async def save_stickies():
         return
     try:
         msg = await ch.fetch_message(sticky_storage_message_id)
+        data = {}
+        for cid, text in sticky_texts.items():
+            entry = {"text": text}
+            if cid in sticky_messages:
+                entry["message_id"] = sticky_messages[cid]
+            data[str(cid)] = entry
+        await msg.edit(content="STICKY_DATA:" + json.dumps(data))
     except:
-        return
-    data = {}
-    for cid, text in sticky_texts.items():
-        entry = {"text": text}
-        if cid in sticky_messages:
-            entry["message_id"] = sticky_messages[cid]
-        data[str(cid)] = entry
-    await msg.edit(content="STICKY_DATA:" + json.dumps(data))
+        pass
 
 def parse_schedule_datetime(when: str) -> datetime | None:
     try:
@@ -193,14 +193,12 @@ async def init_prize_storage():
     global movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes
     if STORAGE_CHANNEL_ID == 0:
         return
-    await log_to_bot_channel(f"init_prize_storage called manually")
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not isinstance(ch, discord.TextChannel):
-        await log_to_bot_channel(f"init_prize_storage: channel {STORAGE_CHANNEL_ID} not found or not text")
         return
     movie_msg = nitro_msg = steam_msg = None
     async for msg in ch.history(limit=100, oldest_first=True):
-        if msg.author != bot.user or not msg.content:
+        if msg.author != bot.user:
             continue
         if msg.content.startswith("PRIZE_MOVIE_DATA:"):
             movie_msg = msg
@@ -210,27 +208,22 @@ async def init_prize_storage():
             steam_msg = msg
         if movie_msg and nitro_msg and steam_msg:
             break
-    if not movie_msg or not nitro_msg or not steam_msg:
-        await log_to_bot_channel("init_prize_storage: One or more prize storage messages missing. Run /prize_init first.")
+    if not (movie_msg and nitro_msg and steam_msg):
+        await log_to_bot_channel("Prize storage messages missing. Run /prize_init first.")
         return
     movie_prize_storage_message_id = movie_msg.id
     nitro_prize_storage_message_id = nitro_msg.id
     steam_prize_storage_message_id = steam_msg.id
-    try:
-        raw = movie_msg.content[len("PRIZE_MOVIE_DATA:"):]
-        movie_scheduled_prizes = json.loads(raw or "[]") if isinstance(json.loads(raw or "[]"), list) else []
-    except:
-        movie_scheduled_prizes = []
-    try:
-        raw = nitro_msg.content[len("PRIZE_NITRO_DATA:"):]
-        nitro_scheduled_prizes = json.loads(raw or "[]") if isinstance(json.loads(raw or "[]"), list) else []
-    except:
-        nitro_scheduled_prizes = []
-    try:
-        raw = steam_msg.content[len("PRIZE_STEAM_DATA:"):]
-        steam_scheduled_prizes = json.loads(raw or "[]") if isinstance(json.loads(raw or "[]"), list) else []
-    except:
-        steam_scheduled_prizes = []
+    def load_list(content, prefix):
+        try:
+            raw = content[len(prefix):]
+            data = json.loads(raw) if raw else []
+            return data if isinstance(data, list) else []
+        except:
+            return []
+    movie_scheduled_prizes = load_list(movie_msg.content, "PRIZE_MOVIE_DATA:")
+    nitro_scheduled_prizes = load_list(nitro_msg.content, "PRIZE_NITRO_DATA:")
+    steam_scheduled_prizes = load_list(steam_msg.content, "PRIZE_STEAM_DATA:")
 
 async def save_prize_storage():
     if STORAGE_CHANNEL_ID == 0:
@@ -238,24 +231,17 @@ async def save_prize_storage():
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not ch:
         return
-    if movie_prize_storage_message_id:
-        try:
-            msg = await ch.fetch_message(movie_prize_storage_message_id)
-            await msg.edit(content="PRIZE_MOVIE_DATA:" + json.dumps(movie_scheduled_prizes))
-        except:
-            pass
-    if nitro_prize_storage_message_id:
-        try:
-            msg = await ch.fetch_message(nitro_prize_storage_message_id)
-            await msg.edit(content="PRIZE_NITRO_DATA:" + json.dumps(nitro_scheduled_prizes))
-        except:
-            pass
-    if steam_prize_storage_message_id:
-        try:
-            msg = await ch.fetch_message(steam_prize_storage_message_id)
-            await msg.edit(content="PRIZE_STEAM_DATA:" + json.dumps(steam_scheduled_prizes))
-        except:
-            pass
+    for msg_id, data, prefix in [
+        (movie_prize_storage_message_id, movie_scheduled_prizes, "PRIZE_MOVIE_DATA:"),
+        (nitro_prize_storage_message_id, nitro_scheduled_prizes, "PRIZE_NITRO_DATA:"),
+        (steam_prize_storage_message_id, steam_scheduled_prizes, "PRIZE_STEAM_DATA:"),
+    ]:
+        if msg_id:
+            try:
+                msg = await ch.fetch_message(msg_id)
+                await msg.edit(content=prefix + json.dumps(data))
+            except:
+                pass
 
 def get_prize_list_and_entries(prize_type: str):
     if prize_type == "movie":
@@ -421,9 +407,9 @@ async def save_deadchat_storage():
         return
     try:
         msg = await ch.fetch_message(deadchat_storage_message_id)
+        await msg.edit(content="DEADCHAT_DATA:" + json.dumps(deadchat_last_times))
     except:
-        return
-    await msg.edit(content="DEADCHAT_DATA:" + json.dumps(deadchat_last_times))
+        pass
 
 async def get_twitch_token():
     global twitch_access_token
