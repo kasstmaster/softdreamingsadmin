@@ -405,6 +405,7 @@ async def init_deadchat_storage():
         pass
 
 async def save_deadchat_storage():
+    global deadchat_storage_message_id   # ← MUST be at the very top of the function
     if STORAGE_CHANNEL_ID == 0 or deadchat_storage_message_id is None:
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
@@ -414,10 +415,9 @@ async def save_deadchat_storage():
         msg = await ch.fetch_message(deadchat_storage_message_id)
         await msg.edit(content="DEADCHAT_DATA:" + json.dumps(deadchat_last_times))
     except discord.Forbidden:
-        await log_to_bot_channel("Cannot edit DEADCHAT_DATA → Bot missing 'Manage Messages' in storage channel")
+        await log_to_bot_channel("DEADCHAT_DATA: Bot missing 'Manage Messages' in storage channel")
     except discord.NotFound:
-        await log_to_bot_channel("DEADCHAT_DATA message deleted → Run /deadchat_init again")
-        global deadchat_storage_message_id
+        await log_to_bot_channel("DEADCHAT_DATA message deleted — Run /deadchat_init")
         deadchat_storage_message_id = None
     except Exception as e:
         await log_to_bot_channel(f"Deadchat save failed: {e}")
