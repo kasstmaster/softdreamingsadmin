@@ -96,12 +96,14 @@ else:
 ############### GLOBAL STATE / STORAGE ###############
 twitch_access_token: str | None = None
 twitch_live_state: dict[str, bool] = {}
+twitch_state_storage_message_id: int | None = None
 
 dead_current_holder_id: int | None = None
 dead_last_notice_message_ids: dict[int, int | None] = {}
 dead_last_win_time: dict[int, datetime] = {}
 deadchat_last_times: dict[int, str] = {}
 deadchat_storage_message_id: int | None = None
+deadchat_state_storage_message_id: int | None = None
 movie_prize_storage_message_id: int | None = None
 nitro_prize_storage_message_id: int | None = None
 steam_prize_storage_message_id: int | None = None
@@ -363,9 +365,9 @@ async def handle_dead_chat_message(message: discord.Message):
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
-    for cid, mid in list(dead_last_notice_message_ids.items()):
+    for old_cid, mid in list(dead_last_notice_message_ids.items()):
         if mid:
-            ch = message.guild.get_channel(cid)
+            ch = message.guild.get_channel(old_cid)
             if ch:
                 try:
                     m = await ch.fetch_message(mid)
@@ -373,8 +375,12 @@ async def handle_dead_chat_message(message: discord.Message):
                 except:
                     pass
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
-    notice = await message.channel.send(f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n-# There's a random chance to win prizes with this role.")
+    notice = await message.channel.send(
+        f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
+        "-# There's a random chance to win prizes with this role."
+    )
     dead_last_notice_message_ids[message.channel.id] = notice.id
+    await save_deadchat_state()
 
 async def init_deadchat_storage():
     global deadchat_storage_message_id, deadchat_last_times
@@ -405,7 +411,7 @@ async def init_deadchat_storage():
         pass
 
 async def save_deadchat_storage():
-    global deadchat_storage_message_id   # ← MUST be at the very top of the function
+    global deadchat_storage_message_id
     if STORAGE_CHANNEL_ID == 0 or deadchat_storage_message_id is None:
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
@@ -421,6 +427,106 @@ async def save_deadchat_storage():
         deadchat_storage_message_id = None
     except Exception as e:
         await log_to_bot_channel(f"Deadchat save failed: {e}")
+
+async def init_deadchat_state_storage():
+    global deadchat_state_storage_message_id
+    if STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return
+    storage_msg = None
+    async for msg in ch.history(limit=50, oldest_first=True):
+        if msg.author == bot.user and msg.content.startswith("DEADCHAT_STATE:"):
+            storage_msg = msg
+            break
+    if not storage_msg:
+        await log_to_bot_channel("DEADCHAT_STATE message missing → Run /deadchat_state_init")
+        return
+    deadchat_state_storage_message_id = storage_msg.id
+    await load_deadchat_state()  # load the data immediately
+
+async def load_deadchat_state():
+    global dead_current_holder_id, dead_last_win_time, dead_last_notice_message_ids
+    if not deadchat_state_storage_message_id or STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    try:
+        msg = await ch.fetch_message(deadchat_state_storage_message_id)
+        data = json.loads(msg.content[len("DEADCHAT_STATE:"):])
+        dead_current_holder_id = data.get("current_holder")
+        dead_last_win_time = {int(k): datetime.fromisoformat(v.replace("Z", "")) for k, v in data.get("last_win_times", {}).items()}
+        dead_last_notice_message_ids = {int(k): v for k, v in data.get("notice_msg_ids", {}).items()}
+        # Give the role back if someone had it
+        if dead_current_holder_id:
+            for guild in bot.guilds:
+                member = guild.get_member(dead_current_holder_id)
+                role = guild.get_role(DEAD_CHAT_ROLE_ID)
+                if member and role and role not in member.roles:
+                    await member.add_roles(role, reason="Restoring Dead Chat role after restart")
+    except Exception as e:
+        await log_to_bot_channel(f"Failed to load DEADCHAT_STATE: {e}")
+
+async def save_deadchat_state():
+    if STORAGE_CHANNEL_ID == 0 or deadchat_state_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, TextChannel):
+        return
+    data = {
+        "current_holder": dead_current_holder_id,
+        "last_win_times": {str(k): v.isoformat() + "Z" for k, v in dead_last_win_time.items()},
+        "notice_msg_ids": dead_last_notice_message_ids
+    }
+    try:
+        try:
+            msg = await ch.fetch_message(deadchat_state_storage_message_id)
+        await msg.edit(content="DEADCHAT_STATE:" + json.dumps(data))
+    except Exception as e:
+        await log_to_bot_channel(f"Deadchat state save failed: {e}")
+
+# Twitch state -------------------------------------------------
+async def init_twitch_state_storage():
+    global twitch_state_storage_message_id
+    if STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return
+    storage_msg = None
+    async for msg in ch.history(limit=50, oldest_first=True):
+        if msg.author == bot.user and msg.content.startswith("TWITCH_STATE:"):
+            storage_msg = msg
+            break
+    if not storage_msg:
+        await log_to_bot_channel("TWITCH_STATE message missing → Run /twitch_state_init")
+        return
+    twitch_state_storage_message_id = storage_msg.id
+    await load_twitch_state()
+
+async def load_twitch_state():
+    global twitch_live_state
+    if not twitch_state_storage_message_id:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    try:
+        msg = await ch.fetch_message(twitch_state_storage_message_id)
+        loaded = json.loads(msg.content[len("TWITCH_STATE:"):])
+        twitch_live_state = {k.lower(): bool(v) for k, v in loaded.items()}
+    except:
+        twitch_live_state = {name: False for name in TWITCH_CHANNELS}
+
+async def save_twitch_state():
+    if STORAGE_CHANNEL_ID == 0 or twitch_state_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch:
+        return
+    try:
+        msg = await ch.fetch_message(twitch_state_storage_message_id)
+        await msg.edit(content="TWITCH_STATE:" + json.dumps(twitch_live_state))
+    except:
+        pass
 
 async def get_twitch_token():
     global twitch_access_token
@@ -504,18 +610,20 @@ async def twitch_watcher():
     ch = bot.get_channel(TWITCH_ANNOUNCE_CHANNEL_ID)
     if not ch:
         return
-    for name in TWITCH_CHANNELS:
-        twitch_live_state[name] = False
     while not bot.is_closed():
         streams = await fetch_twitch_streams()
         for name in TWITCH_CHANNELS:
             is_live = name in streams
             was_live = twitch_live_state.get(name, False)
             if is_live and not was_live:
-                await ch.send(f"{TWITCH_EMOJI} {name} is live ┃ https://twitch.tv/{name}\n-# @everyone")
+                await ch.send(
+                    f"{TWITCH_EMOJI} {name} is live ┃ https://twitch.tv/{name}\n-# @everyone"
+                )
                 twitch_live_state[name] = True
+                await save_twitch_state()
             elif not is_live and was_live:
                 twitch_live_state[name] = False
+                await save_twitch_state()
         await asyncio.sleep(60)
 
 
@@ -551,6 +659,8 @@ async def on_ready():
     await init_sticky_storage()
     await init_prize_storage()
     await init_deadchat_storage()
+    await init_deadchat_state_storage()
+    await init_twitch_state_storage()
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
@@ -725,6 +835,26 @@ async def deadchat_rescan(ctx):
                 pass
         await save_deadchat_storage()
     await ctx.respond(f"Rescan complete — found latest message in {count}/{len(DEAD_CHAT_CHANNEL_IDS)} dead-chat channels and saved timestamps.", ephemeral=True)
+
+@bot.slash_command(name="deadchat_state_init", description="Create DEADCHAT_STATE storage message")
+async def deadchat_state_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("DEADCHAT_STATE:{\"current_holder\":null,\"last_win_times\":{},\"notice_msg_ids\":{}}")
+    await ctx.respond(f"Created DEADCHAT_STATE message: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="twitch_state_init", description="Create TWITCH_STATE storage message")
+async def twitch_state_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("TWITCH_STATE:{}")
+    await ctx.respond(f"Created TWITCH_STATE message: {msg.id}", ephemeral=True)
     
 @bot.slash_command(name="prize_init", description="Manually create prize storage messages")
 async def prize_init(ctx):
