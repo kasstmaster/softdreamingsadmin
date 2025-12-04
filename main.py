@@ -147,7 +147,8 @@ async def init_sticky_storage():
             storage_msg = msg
             break
     if not storage_msg:
-        storage_msg = await ch.send("STICKY_DATA:{}")
+        await log_to_bot_channel("init_sticky_storage: STICKY_DATA message not found. Run /sticky_init first.")
+        return
     sticky_storage_message_id = storage_msg.id
     data_str = storage_msg.content[len("STICKY_DATA:"):]
     if data_str.strip():
@@ -155,6 +156,7 @@ async def init_sticky_storage():
             data = json.loads(data_str)
             for cid_str, info in data.items():
                 cid = int(cid_str)
+                if "cid" in locals() else cid_str)
                 if info.get("text"):
                     sticky_texts[cid] = info["text"]
                 if info.get("message_id"):
@@ -191,14 +193,12 @@ async def init_prize_storage():
     global movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes
     if STORAGE_CHANNEL_ID == 0:
         return
-    await log_to_bot_channel(f"init_prize_storage start: STORAGE_CHANNEL_ID={STORAGE_CHANNEL_ID}")
+    await log_to_bot_channel(f"init_prize_storage called manually")
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not isinstance(ch, discord.TextChannel):
-        await log_to_bot_channel(f"init_prize_storage: channel {STORAGE_CHANNEL_ID} not found or not a text channel")
+        await log_to_bot_channel(f"init_prize_storage: channel {STORAGE_CHANNEL_ID} not found or not text")
         return
-    movie_msg = None
-    nitro_msg = None
-    steam_msg = None
+    movie_msg = nitro_msg = steam_msg = None
     async for msg in ch.history(limit=100, oldest_first=True):
         if msg.author != bot.user or not msg.content:
             continue
@@ -210,36 +210,27 @@ async def init_prize_storage():
             steam_msg = msg
         if movie_msg and nitro_msg and steam_msg:
             break
-    if not movie_msg:
-        movie_msg = await ch.send("PRIZE_MOVIE_DATA:[]")
-    if not nitro_msg:
-        nitro_msg = await ch.send("PRIZE_NITRO_DATA:[]")
-    if not steam_msg:
-        steam_msg = await ch.send("PRIZE_STEAM_DATA:[]")
+    if not movie_msg or not nitro_msg or not steam_msg:
+        await log_to_bot_channel("init_prize_storage: One or more prize storage messages missing. Run /prize_init first.")
+        return
     movie_prize_storage_message_id = movie_msg.id
     nitro_prize_storage_message_id = nitro_msg.id
     steam_prize_storage_message_id = steam_msg.id
     try:
         raw = movie_msg.content[len("PRIZE_MOVIE_DATA:"):]
-        data = json.loads(raw or "[]")
-        if isinstance(data, list):
-            movie_scheduled_prizes = data
+        movie_scheduled_prizes = json.loads(raw or "[]") if isinstance(json.loads(raw or "[]"), list) else []
     except:
-        pass
+        movie_scheduled_prizes = []
     try:
         raw = nitro_msg.content[len("PRIZE_NITRO_DATA:"):]
-        data = json.loads(raw or "[]")
-        if isinstance(data, list):
-            nitro_scheduled_prizes = data
+        nitro_scheduled_prizes = json.loads(raw or "[]") if isinstance(json.loads(raw or "[]"), list) else []
     except:
-        pass
+        nitro_scheduled_prizes = []
     try:
         raw = steam_msg.content[len("PRIZE_STEAM_DATA:"):]
-        data = json.loads(raw or "[]")
-        if isinstance(data, list):
-            steam_scheduled_prizes = data
+        steam_scheduled_prizes = json.loads(raw or "[]") if isinstance(json.loads(raw or "[]"), list) else []
     except:
-        pass
+        steam_scheduled_prizes = []
 
 async def save_prize_storage():
     if STORAGE_CHANNEL_ID == 0:
@@ -407,11 +398,13 @@ async def init_deadchat_storage():
             storage_msg = msg
             break
     if not storage_msg:
-        storage_msg = await ch.send("DEADCHAT_DATA:{}")
+        await log_to_bot_channel("init_deadchat_storage: DEADCHAT_DATA message not found. Run /deadchat_init first.")
+        return
     deadchat_storage_message_id = storage_msg.id
     raw = storage_msg.content[len("DEADCHAT_DATA:"):]
     try:
         data = json.loads(raw or "{}")
+        deadchat_last_times.clear()
         for cid_str, ts in data.items():
             try:
                 deadchat_last_times[int(cid_str)] = ts
@@ -714,25 +707,46 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 
 
 ############### COMMAND GROUPS ###############
-@bot.slash_command(name="diag", description="Diagnostic test for startup inits")
-async def diag(ctx):
-    await ctx.respond("Running diagnostics...", ephemeral=True)
-    try:
-        await init_sticky_storage()
-        await ctx.followup.send("Sticky init: OK")
-    except Exception as e:
-        await ctx.followup.send(f"Sticky init ERROR: {e}")
-    try:
-        await init_prize_storage()
-        await ctx.followup.send("Prize init: OK")
-    except Exception as e:
-        await ctx.followup.send(f"Prize init ERROR: {e}")
-    try:
-        await init_deadchat_storage()
-        await ctx.followup.send("DeadChat init: OK")
-    except Exception as e:
-        await ctx.followup.send(f"DeadChat init ERROR: {e}")
+@bot.slash_command(name="prize_init", description="Manually create prize storage messages")
+async def prize_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Storage channel invalid.", ephemeral=True)
+    movie_msg = await ch.send("PRIZE_MOVIE_DATA:[]")
+    nitro_msg = await ch.send("PRIZE_NITRO_DATA:[]")
+    steam_msg = await ch.send("PRIZE_STEAM_DATA:[]")
+    global movie_prize_storage_message_id, nitro_prize_storage_message_id, steam_prize_storage_message_id
+    movie_prize_storage_message_id = movie_msg.id
+    nitro_prize_storage_message_id = nitro_msg.id
+    steam_prize_storage_message_id = steam_msg.id
+    await ctx.respond(f"Prize storage messages created:\nMovie: {movie_msg.id}\nNitro: {nitro_msg.id}\nSteam: {steam_msg.id}", ephemeral=True)
 
+@bot.slash_command(name="sticky_init", description="Manually create sticky storage message")
+async def sticky_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Storage channel invalid.", ephemeral=True)
+    msg = await ch.send("STICKY_DATA:{}")
+    global sticky_storage_message_id
+    sticky_storage_message_id = msg.id
+    await ctx.respond(f"Sticky storage message created: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="deadchat_init", description="Manually create deadchat storage message")
+async def deadchat_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Storage channel invalid.", ephemeral=True)
+    msg = await ch.send("DEADCHAT_DATA:{}")
+    global deadchat_storage_message_id
+    deadchat_storage_message_id = msg.id
+    await ctx.respond(f"Deadchat storage message created: {msg.id}", ephemeral=True)
+    
 @bot.slash_command(name="say", description="Make the bot say something right here")
 async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
     if not ctx.author.guild_permissions.administrator:
@@ -772,19 +786,6 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
     new_content = "\n".join([line1, line2, line3, line4])
     await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
-
-@bot.slash_command(name="prize_init", description="Initialize prize storage messages")
-async def prize_init(ctx):
-    if not ctx.author.guild_permissions.administrator:
-        return await ctx.respond("Admin only.", ephemeral=True)
-    await init_prize_storage()
-    await ctx.respond(
-        f"Prize storage initialized.\n"
-        f"movie_msg_id={movie_prize_storage_message_id}\n"
-        f"nitro_msg_id={nitro_prize_storage_message_id}\n"
-        f"steam_msg_id={steam_prize_storage_message_id}",
-        ephemeral=True,
-    )
 
 @bot.slash_command(name="prize_list", description="List scheduled prizes")
 async def prize_list(
