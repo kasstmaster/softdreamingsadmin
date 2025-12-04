@@ -478,7 +478,7 @@ async def save_deadchat_state():
         return
     data = {
         "current_holder": dead_current_holder_id,
-        "last_win_times": {str(k): v.isoformat() + "Z for k, v in dead_last_win_time.items()},
+        "last_win_times": {str(k): v.isoformat() + "Z" for k, v in dead_last_win_time.items()},
         "notice_msg_ids": dead_last_notice_message_ids
     }
     try:
