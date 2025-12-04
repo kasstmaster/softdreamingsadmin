@@ -413,13 +413,13 @@ async def save_deadchat_storage():
         msg = await ch.fetch_message(deadchat_storage_message_id)
         await msg.edit(content="DEADCHAT_DATA:" + json.dumps(deadchat_last_times))
     except discord.Forbidden:
-        await log_to_bot_channel("Cannot save deadchat data → Missing 'Manage Messages' in storage channel!")
+        await log_to_bot_channel("Cannot edit DEADCHAT_DATA → Bot missing 'Manage Messages' permission in storage channel")
     except discord.NotFound:
-        await log_to_bot_channel("Deadchat storage message deleted → Run /deadchat_init again")
+        await log_to_bot_channel("DEADCHAT_DATA message was deleted → Run /deadchat_init again")
         global deadchat_storage_message_id
         deadchat_storage_message_id = None
     except Exception as e:
-        await log_to_bot_channel(f"Deadchat save failed: {e}")
+        await log_to_bot_channel(f"Deadchat save error: {e}")
 
 async def get_twitch_token():
     global twitch_access_token
