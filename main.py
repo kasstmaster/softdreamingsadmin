@@ -12,7 +12,7 @@
 #   ############### EVENT HANDLERS ###############
 #   ############### COMMAND GROUPS ###############
 #   ############### ON_READY & BOT START ###############
-#
+# 
 # • Do NOT add any other sections.
 # • Do NOT add comments, notes, or explanations inside the code.
 # ============================================================
