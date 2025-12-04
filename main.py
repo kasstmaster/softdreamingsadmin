@@ -702,6 +702,13 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 
 
 ############### COMMAND GROUPS ###############
+@bot.slash_command(name="storage_debug")
+async def storage_debug(ctx):
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch:
+        return await ctx.respond(f"get_channel({STORAGE_CHANNEL_ID}) returned None", ephemeral=True)
+    return await ctx.respond(f"Channel object: {ch} (type={type(ch).__name__})", ephemeral=True)
+
 @bot.slash_command(name="say", description="Make the bot say something right here")
 async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
     if not ctx.author.guild_permissions.administrator:
