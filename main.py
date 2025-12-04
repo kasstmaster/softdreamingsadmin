@@ -541,11 +541,15 @@ async def on_ready():
         for channel in guild.text_channels:
             try:
                 msg = await channel.fetch_message(REACTION_ROLE_MESSAGE_ID)
-                for emoji in reaction_roles:
-                    await msg.add_reaction(emoji)
             except:
                 continue
-            break
+            else:
+                for emoji in reaction_roles:
+                    try:
+                        await msg.add_reaction(emoji)
+                    except:
+                        pass
+                break
     await init_sticky_storage()
     await init_prize_storage()
     await init_deadchat_storage()
