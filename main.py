@@ -1,4 +1,6 @@
 # ============================================================
+# THIS IS THE ADMIN BOT
+#
 # Grok & ChatGPT RULES FOR THIS FILE (DO NOT VIOLATE)
 #
 # • Use ONLY these sections, in this exact order:
