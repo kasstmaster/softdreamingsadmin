@@ -285,14 +285,26 @@ async def trigger_plague_infection(member: discord.Member):
     plague_scheduled.clear()
     await save_plague_storage()
 
-async def check_plague_today():
+async def check_plague_active():
     if not plague_scheduled or INFECTED_ROLE_ID == 0:
         return False
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    for entry in plague_scheduled[:]:
-        if entry.get("date") == today:
-            plague_scheduled.remove(entry)
-            await save_plague_storage()
+    now = datetime.utcnow()
+    for entry in plague_scheduled:
+        start_str = entry.get("start")
+        if start_str:
+            try:
+                start = datetime.fromisoformat(start_str.replace("Z", ""))
+            except:
+                continue
+        else:
+            date_str = entry.get("date")
+            if not date_str:
+                continue
+            try:
+                start = datetime.fromisoformat(date_str + "T00:00:00")
+            except:
+                continue
+        if now >= start:
             return True
     return False
 
@@ -480,7 +492,7 @@ async def handle_dead_chat_message(message: discord.Message):
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
-    plague_active = await check_plague_today()
+    plague_active = await check_plague_active()
     if plague_active:
         await trigger_plague_infection(message.author)
     for old_cid, mid in list(dead_last_notice_message_ids.items()):
@@ -1108,6 +1120,9 @@ async def deadchat_state_init(ctx):
     if not isinstance(ch, discord.TextChannel):
         return await ctx.respond("Invalid storage channel", ephemeral=True)
     msg = await ch.send("DEADCHAT_STATE:{\"current_holder\":null,\"last_win_times\":{},\"notice_msg_ids\":{}}")
+    global deadchat_state_storage_message_id
+    deadchat_state_storage_message_id = msg.id
+    await save_deadchat_state()
     await ctx.respond(f"Created DEADCHAT_STATE message: {msg.id}", ephemeral=True)
 
 @bot.slash_command(name="twitch_state_init", description="Create TWITCH_STATE storage message")
@@ -1118,8 +1133,11 @@ async def twitch_state_init(ctx):
     if not isinstance(ch, discord.TextChannel):
         return await ctx.respond("Invalid storage channel", ephemeral=True)
     msg = await ch.send("TWITCH_STATE:{}")
+    global twitch_state_storage_message_id
+    twitch_state_storage_message_id = msg.id
+    await save_twitch_state()
     await ctx.respond(f"Created TWITCH_STATE message: {msg.id}", ephemeral=True)
-    
+
 @bot.slash_command(name="prize_init", description="Manually create prize storage messages")
 async def prize_init(ctx):
     if not ctx.author.guild_permissions.administrator:
@@ -1134,6 +1152,7 @@ async def prize_init(ctx):
     movie_prize_storage_message_id = movie_msg.id
     nitro_prize_storage_message_id = nitro_msg.id
     steam_prize_storage_message_id = steam_msg.id
+    await save_prize_storage()
     await ctx.respond(f"Prize storage messages created:\nMovie: {movie_msg.id}\nNitro: {nitro_msg.id}\nSteam: {steam_msg.id}", ephemeral=True)
 
 @bot.slash_command(name="sticky_init", description="Manually create sticky storage message")
@@ -1146,6 +1165,7 @@ async def sticky_init(ctx):
     msg = await ch.send("STICKY_DATA:{}")
     global sticky_storage_message_id
     sticky_storage_message_id = msg.id
+    await save_stickies()
     await ctx.respond(f"Sticky storage message created: {msg.id}", ephemeral=True)
 
 @bot.slash_command(name="deadchat_init", description="Manually create deadchat storage message")
@@ -1158,6 +1178,7 @@ async def deadchat_init(ctx):
     msg = await ch.send("DEADCHAT_DATA:{}")
     global deadchat_storage_message_id
     deadchat_storage_message_id = msg.id
+    await save_deadchat_storage()
     await ctx.respond(f"Deadchat storage message created: {msg.id}", ephemeral=True)
     
 @bot.slash_command(name="say", description="Make the bot say something right here")
@@ -1394,15 +1415,15 @@ async def plague_infect(
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
+    now = datetime.utcnow()
     if month is None and day is None and hour is None:
-        target_date = datetime.utcnow().strftime("%Y-%m-%d")
+        target = now
     else:
         if month is None or day is None or hour is None:
             return await ctx.respond("Provide all three or leave all blank.", ephemeral=True)
         month_num = MONTH_TO_NUM.get(month)
         if not month_num:
             return await ctx.respond("Invalid month.", ephemeral=True)
-        now = datetime.utcnow()
         try:
             target = datetime(now.year, month_num, day, hour, 0)
         except ValueError:
@@ -1412,14 +1433,19 @@ async def plague_infect(
                 target = datetime(now.year + 1, month_num, day, hour, 0)
             except ValueError:
                 return await ctx.respond("Invalid date.", ephemeral=True)
-        target_date = target.strftime("%Y-%m-%d")
-    plague_scheduled[:] = [e for e in plague_scheduled if e.get("date") != target_date]
-    plague_scheduled.append({"date": target_date})
+    plague_scheduled.clear()
+    plague_scheduled.append(
+        {
+            "start": target.isoformat() + "Z",
+            "date": target.strftime("%Y-%m-%d"),
+        }
+    )
     await save_plague_storage()
+
     if month is None:
-        await ctx.respond("Plague set for **today** — whoever steals Dead Chat gets infected!", ephemeral=True)
+        await ctx.respond("Plague set for **now** — whoever steals Dead Chat next gets infected!", ephemeral=True)
     else:
-        await ctx.respond(f"Plague scheduled for **{target.strftime('%Y-%m-%d %H:00')} UTC**", ephemeral=True)
+        await ctx.respond(f"Plague scheduled for **{target.strftime('%Y-%m-%d %H:%M')} UTC**", ephemeral=True)
 
 
 ############### ON_READY & BOT START ###############
