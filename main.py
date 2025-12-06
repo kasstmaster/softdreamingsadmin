@@ -1382,6 +1382,7 @@ async def plague_init(ctx):
     msg = await ch.send("PLAGUE_DATA:[]")
     global plague_storage_message_id
     plague_storage_message_id = msg.id
+    await save_plague_storage()
     await ctx.respond(f"Plague storage created: {msg.id}", ephemeral=True)
 
 @bot.slash_command(name="plague_infect", description="Schedule a contagious Dead Chat day")
