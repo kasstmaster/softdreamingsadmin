@@ -100,8 +100,8 @@ DEAD_CHAT_COOLDOWN_SECONDS = int(os.getenv("DEAD_CHAT_COOLDOWN_SECONDS", "0"))
 IGNORE_MEMBER_IDS = {int(x.strip()) for x in os.getenv("IGNORE_MEMBER_IDS", "").split(",") if x.strip().isdigit()}
 MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
-DEAD_CHAT_RESET_HOUR_UTC = int(os.getenv("DEAD_CHAT_RESET_HOUR_UTC", "0"))
 
+PRIZE_PLAGUE_TRIGGER_HOUR_UTC = 12
 INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
 INFECTED_MESSAGE_TEMPLATE = "🦠 **INFECTION OUTBREAK!**"
 INFECTED_ANNOUNCE_CHANNEL_ID = int(os.getenv("INFECTED_ANNOUNCE_CHANNEL_ID", "0"))
@@ -451,7 +451,7 @@ async def run_scheduled_prize(prize_type: str, prize_id: int):
     entries[:] = [p for p in entries if p.get("id") != prize_id]
     await save_prize_storage()
 
-async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, send_at: datetime):
+async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, date_str: str):
     if prize_type == "movie":
         entries = movie_scheduled_prizes
     elif prize_type == "nitro":
@@ -467,11 +467,10 @@ async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, se
             "id": new_id,
             "channel_id": channel_id,
             "content": content,
-            "send_at": send_at.strftime("%Y-%m-%d %H:%M"),
+            "date": date_str,
         }
     )
     await save_prize_storage()
-    bot.loop.create_task(run_scheduled_prize(prize_type, new_id))
 
 async def initialize_dead_chat():
     global dead_current_holder_id
@@ -528,9 +527,38 @@ async def handle_dead_chat_message(message: discord.Message):
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
-    plague_active = await check_plague_active()
-    if plague_active:
-        await trigger_plague_infection(message.author)
+
+    today_str = now.strftime("%Y-%m-%d")
+    hour_utc = now.hour
+    triggered_plague = False
+    if hour_utc >= PRIZE_PLAGUE_TRIGGER_HOUR_UTC and plague_scheduled:
+        for entry in list(plague_scheduled):
+            if entry.get("date") == today_str:
+                await trigger_plague_infection(message.author)
+                triggered_plague = True
+                break
+
+    triggered_prize = False
+    if hour_utc >= PRIZE_PLAGUE_TRIGGER_HOUR_UTC:
+        for prize_list, view_cls in [
+            (movie_scheduled_prizes, MoviePrizeView),
+            (nitro_scheduled_prizes, NitroPrizeView),
+            (steam_scheduled_prizes, SteamPrizeView)
+        ]:
+            matching = [p for p in prize_list if p.get("date") == today_str]
+            if matching:
+                triggered_prize = True
+            for p in matching:
+                channel_id = p.get("channel_id") or message.channel.id
+                channel = message.guild.get_channel(channel_id)
+                if not channel:
+                    channel = message.channel
+                view = view_cls()
+                await channel.send(p.get("content", ""), view=view)
+            prize_list[:] = [p for p in prize_list if p.get("date") != today_str]
+        if triggered_prize:
+            await save_prize_storage()
+
     for old_cid, mid in list(dead_last_notice_message_ids.items()):
         if mid:
             ch = message.guild.get_channel(old_cid)
@@ -542,7 +570,7 @@ async def handle_dead_chat_message(message: discord.Message):
                     pass
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
     notice_text = f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
-    if plague_active:
+    if triggered_plague:
         notice_text += "-# The graveyard was contagious today… one victim has been chosen."
     else:
         notice_text += "-# There's a random chance to win prizes with this role."
@@ -654,23 +682,6 @@ async def save_deadchat_state():
         await msg.edit(content="DEADCHAT_STATE:" + json.dumps(data))
     except Exception as e:
         await log_to_bot_channel(f"Deadchat state save failed: {e}")
-
-async def reset_dead_chat_role():
-    global dead_current_holder_id
-    if DEAD_CHAT_ROLE_ID == 0:
-        return
-    for guild in bot.guilds:
-        role = guild.get_role(DEAD_CHAT_ROLE_ID)
-        if not role:
-            continue
-        for member in list(role.members):
-            try:
-                await member.remove_roles(role, reason="Daily Dead Chat reset")
-            except:
-                pass
-    dead_current_holder_id = None
-    dead_last_notice_message_ids.clear()
-    await save_deadchat_state()
 
 
 # Twitch state -------------------------------------------------
@@ -877,27 +888,6 @@ async def twitch_watcher():
                 await save_twitch_state()
         await asyncio.sleep(60)
 
-async def deadchat_reset_loop():
-    await bot.wait_until_ready()
-    if DEAD_CHAT_ROLE_ID == 0:
-        return
-    while not bot.is_closed():
-        now = datetime.utcnow()
-        target = now.replace(
-            hour=DEAD_CHAT_RESET_HOUR_UTC,
-            minute=0,
-            second=0,
-            microsecond=0
-        )
-        if target <= now:
-            target = target + timedelta(days=1)
-        delay = (target - now).total_seconds()
-        await asyncio.sleep(delay)
-        try:
-            await reset_dead_chat_role()
-        except:
-            pass
-
 async def infected_watcher():
     await bot.wait_until_ready()
     if INFECTED_ROLE_ID == 0:
@@ -987,22 +977,12 @@ async def on_ready():
     await init_plague_storage()
     await init_member_join_storage()
     bot.loop.create_task(twitch_watcher())
-    bot.loop.create_task(deadchat_reset_loop())
     bot.loop.create_task(infected_watcher())
     bot.loop.create_task(member_join_watcher())
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
         await initialize_dead_chat()
-        for prize_list, prize_type in [
-            (movie_scheduled_prizes, "movie"),
-            (nitro_scheduled_prizes, "nitro"),
-            (steam_scheduled_prizes, "steam")
-        ]:
-            for p in prize_list:
-                pid = p.get("id")
-                if pid is not None:
-                    bot.loop.create_task(run_scheduled_prize(prize_type, pid))
 
 @bot.event
 async def on_member_update(before, after):
@@ -1257,7 +1237,7 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
     await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
 
-@bot.slash_command(name="prize_list", description="List scheduled prizes")
+@bot.slash@bot.slash_command(name="prize_list", description="List scheduled prizes")
 async def prize_list(
     ctx,
     prize_type: discord.Option(str, choices=["movie", "nitro", "steam"], required=True),
@@ -1271,7 +1251,7 @@ async def prize_list(
         return await ctx.respond("No scheduled prizes.", ephemeral=True)
     lines = []
     for p in entries:
-        lines.append(f"ID {p['id']} ┃ {p['send_at']} UTC ┃ <#{p['channel_id']}>")
+        lines.append(f"ID {p['id']} ┃ {p['date']} ┃ <#{p['channel_id']}>")
     text = "\n".join(lines)
     await ctx.respond(f"Scheduled {prize_type} prizes:\n{text}", ephemeral=True)
 
@@ -1299,90 +1279,90 @@ async def prize_movie(
     ctx,
     month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Movie Request*\nDrop Rate: *Common*"
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         return await ctx.respond(content, view=MoviePrizeView())
-    if month is None or day is None or hour is None:
-        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    if month is None or day is None:
+        return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
     month_num = MONTH_TO_NUM.get(month)
     if not month_num:
         return await ctx.respond("Invalid month.", ephemeral=True)
     now = datetime.utcnow()
     try:
-        send_at = datetime(now.year, month_num, day, hour, 0)
+        target = datetime(now.year, month_num, day, 0, 0)
     except ValueError:
         return await ctx.respond("Invalid date.", ephemeral=True)
-    if send_at <= now:
+    if target.date() < now.date():
         try:
-            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+            target = datetime(now.year + 1, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-    await add_scheduled_prize("movie", ctx.channel.id, content, send_at)
-    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    await add_scheduled_prize("movie", ctx.channel.id, content, date_str)
+    await ctx.respond(f"Scheduled for {date_str} (triggers on first Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC).", ephemeral=True)
     
 @bot.slash_command(name="prize_nitro")
 async def prize_nitro(
     ctx,
     month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Month of Nitro Basic*\nDrop Rate: *Uncommon*"
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         return await ctx.respond(content, view=NitroPrizeView())
-    if month is None or day is None or hour is None:
-        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    if month is None or day is None:
+        return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
     month_num = MONTH_TO_NUM.get(month)
     if not month_num:
         return await ctx.respond("Invalid month.", ephemeral=True)
     now = datetime.utcnow()
     try:
-        send_at = datetime(now.year, month_num, day, hour, 0)
+        target = datetime(now.year, month_num, day, 0, 0)
     except ValueError:
         return await ctx.respond("Invalid date.", ephemeral=True)
-    if send_at <= now:
+    if target.date() < now.date():
         try:
-            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+            target = datetime(now.year + 1, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-    await add_scheduled_prize("nitro", ctx.channel.id, content, send_at)
-    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    await add_scheduled_prize("nitro", ctx.channel.id, content, date_str)
+    await ctx.respond(f"Scheduled for {date_str} (triggers on first Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC).", ephemeral=True)
 
 @bot.slash_command(name="prize_steam")
 async def prize_steam(
     ctx,
     month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Steam Gift Card*\nDrop Rate: *Rare*"
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         return await ctx.respond(content, view=SteamPrizeView())
-    if month is None or day is None or hour is None:
-        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    if month is None or day is None:
+        return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
     month_num = MONTH_TO_NUM.get(month)
     if not month_num:
         return await ctx.respond("Invalid month.", ephemeral=True)
     now = datetime.utcnow()
     try:
-        send_at = datetime(now.year, month_num, day, hour, 0)
+        target = datetime(now.year, month_num, day, 0, 0)
     except ValueError:
         return await ctx.respond("Invalid date.", ephemeral=True)
-    if send_at <= now:
+    if target.date() < now.date():
         try:
-            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+            target = datetime(now.year + 1, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-    await add_scheduled_prize("steam", ctx.channel.id, content, send_at)
-    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    await add_scheduled_prize("steam", ctx.channel.id, content, date_str)
+    await ctx.respond(f"Scheduled for {date_str} (triggers on first Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC).", ephemeral=True)
 
 @bot.slash_command(name="prize_announce")
 async def prize_announce(ctx, member: discord.Option(discord.Member, required=True), prize: discord.Option(str, choices=list(PRIZE_DEFS.keys()), required=True)):
@@ -1447,41 +1427,39 @@ async def plague_infect(
     ctx,
     month: discord.Option(str, "Month", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23 UTC)", required=False, min_value=0, max_value=23),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     now = datetime.utcnow()
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         target = now
     else:
-        if month is None or day is None or hour is None:
-            return await ctx.respond("Provide all three or leave all blank.", ephemeral=True)
+        if month is None or day is None:
+            return await ctx.respond("Provide both month and day, or leave both blank.", ephemeral=True)
         month_num = MONTH_TO_NUM.get(month)
         if not month_num:
             return await ctx.respond("Invalid month.", ephemeral=True)
         try:
-            target = datetime(now.year, month_num, day, hour, 0)
+            target = datetime(now.year, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-        if target <= now:
+        if target.date() < now.date():
             try:
-                target = datetime(now.year + 1, month_num, day, hour, 0)
+                target = datetime(now.year + 1, month_num, day, 0, 0)
             except ValueError:
                 return await ctx.respond("Invalid date.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
     plague_scheduled.clear()
     plague_scheduled.append(
         {
-            "start": target.isoformat() + "Z",
-            "date": target.strftime("%Y-%m-%d"),
+            "date": date_str,
         }
     )
     await save_plague_storage()
-
     if month is None:
-        await ctx.respond("Plague set for **now** — whoever steals Dead Chat next gets infected!", ephemeral=True)
+        await ctx.respond(f"Plague set for today. First Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC will be infected.", ephemeral=True)
     else:
-        await ctx.respond(f"Plague scheduled for **{target.strftime('%Y-%m-%d %H:%M')} UTC**", ephemeral=True)
+        await ctx.respond(f"Plague scheduled for {date_str}. First Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC will be infected.", ephemeral=True)
 
 
 ############### ON_READY & BOT START ###############
