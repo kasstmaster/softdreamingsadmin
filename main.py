@@ -1098,14 +1098,19 @@ async def storage_scan(ctx):
 async def storage_refresh(ctx):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
-    await init_sticky_storage()
-    await init_member_join_storage()
-    await init_plague_storage()
-    await init_deadchat_storage()
-    await init_deadchat_state_storage()
-    await init_prize_storage()
-    await init_twitch_state_storage()
-    await ctx.respond("Storage reload complete. Run /storage_debug to verify.", ephemeral=True)
+    try:
+        await init_sticky_storage()
+        await init_member_join_storage()
+        await init_plague_storage()
+        await init_deadchat_storage()
+        await init_deadchat_state_storage()
+        await init_prize_storage()
+        await init_twitch_state_storage()
+        await ctx.respond("Storage reload complete. Run /storage_debug to verify.", ephemeral=True)
+    except Exception as e:
+        await log_to_bot_channel(f"storage_refresh failed: {e}")
+        if not ctx.response.is_done():
+            await ctx.respond(f"storage_refresh error: {e}", ephemeral=True)
 
 @bot.slash_command(name="deadchat_rescan", description="Force-scan all dead-chat channels for latest message timestamps")
 async def deadchat_rescan(ctx):
