@@ -1012,9 +1012,6 @@ async def member_join_watcher():
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online!")
-    bot.add_view(MoviePrizeView())
-    bot.add_view(NitroPrizeView())
-    bot.add_view(SteamPrizeView())
     bot.add_view(GameNotificationView())
     await run_all_inits_with_logging()
     bot.loop.create_task(twitch_watcher())
