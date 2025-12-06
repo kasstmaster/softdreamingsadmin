@@ -167,23 +167,29 @@ async def log_to_bot_channel(content: str):
     except Exception:
         pass
 
+async def find_storage_message(prefix: str) -> discord.Message | None:
+    if STORAGE_CHANNEL_ID == 0:
+        await log_to_bot_channel(f"find_storage_message: STORAGE_CHANNEL_ID is 0 for {prefix}")
+        return None
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        await log_to_bot_channel(f"find_storage_message: storage channel invalid for {prefix}")
+        return None
+    async for msg in ch.history(limit=200, oldest_first=False):
+        if msg.author == bot.user and msg.content.startswith(prefix):
+            return msg
+    await log_to_bot_channel(f"find_storage_message: no storage message found for {prefix}")
+    return None
+
 async def init_sticky_storage():
     global sticky_storage_message_id
     if STORAGE_CHANNEL_ID == 0:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
+    msg = await find_storage_message("STICKY_DATA:")
+    if not msg:
         return
-    storage_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author == bot.user and msg.content.startswith("STICKY_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("Sticky storage message not found → Run /sticky_init first")
-        return
-    sticky_storage_message_id = storage_msg.id
-    data_str = storage_msg.content[len("STICKY_DATA:"):]
+    sticky_storage_message_id = msg.id
+    data_str = msg.content[len("STICKY_DATA:"):]
     if not data_str.strip():
         return
     try:
@@ -222,28 +228,18 @@ async def save_stickies():
 
 async def init_member_join_storage():
     global member_join_storage_message_id, pending_member_joins
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("MEMBERJOIN_DATA:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author == bot.user and msg.content.startswith("MEMBERJOIN_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("MEMBERJOIN_DATA message not found → Run /memberjoin_init first")
-        return
-    member_join_storage_message_id = storage_msg.id
-    raw = storage_msg.content[len("MEMBERJOIN_DATA:"):]
+    member_join_storage_message_id = msg.id
+    raw = msg.content[len("MEMBERJOIN_DATA:"):]
     try:
         data = json.loads(raw or "[]")
         if isinstance(data, list):
             pending_member_joins[:] = data
         else:
             pending_member_joins[:] = []
-    except:
+    except Exception:
         pending_member_joins[:] = []
 
 async def save_member_join_storage():
@@ -260,22 +256,12 @@ async def save_member_join_storage():
 
 async def init_plague_storage():
     global plague_storage_message_id, plague_scheduled, infected_members
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("PLAGUE_DATA:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author == bot.user and msg.content.startswith("PLAGUE_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("Plague storage missing → Run /plague_init")
-        return
-    plague_storage_message_id = storage_msg.id
+    plague_storage_message_id = msg.id
     try:
-        raw = storage_msg.content[len("PLAGUE_DATA:"):]
+        raw = msg.content[len("PLAGUE_DATA:"):]
         data = json.loads(raw or "[]")
         plague_scheduled.clear()
         infected_members.clear()
@@ -289,14 +275,16 @@ async def init_plague_storage():
                     infected_members[int(mid_str)] = ts
                 except:
                     pass
-    except:
-        pass
+    except Exception as e:
+        await log_to_bot_channel(f"init_plague_storage failed: {e}")
 
 async def save_plague_storage():
     if STORAGE_CHANNEL_ID == 0 or plague_storage_message_id is None:
+        await log_to_bot_channel("save_plague_storage: storage id missing")
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not ch or not isinstance(ch, TextChannel):
+        await log_to_bot_channel("save_plague_storage: storage channel invalid")
         return
     payload = {
         "scheduled": plague_scheduled,
@@ -305,8 +293,8 @@ async def save_plague_storage():
     try:
         msg = await ch.fetch_message(plague_storage_message_id)
         await msg.edit(content="PLAGUE_DATA:" + json.dumps(payload))
-    except:
-        pass
+    except Exception as e:
+        await log_to_bot_channel(f"save_plague_storage failed: {e}")
 
 async def trigger_plague_infection(member: discord.Member):
     infected_role = member.guild.get_role(INFECTED_ROLE_ID)
@@ -354,20 +342,11 @@ async def init_prize_storage():
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not isinstance(ch, discord.TextChannel):
+        await log_to_bot_channel("init_prize_storage: invalid storage channel")
         return
-    movie_msg = nitro_msg = steam_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author != bot.user:
-            continue
-        content = msg.content
-        if content.startswith("PRIZE_MOVIE_DATA:") and not movie_msg:
-            movie_msg = msg
-        elif content.startswith("PRIZE_NITRO_DATA:") and not nitro_msg:
-            nitro_msg = msg
-        elif content.startswith("PRIZE_STEAM_DATA:") and not steam_msg:
-            steam_msg = msg
-        if movie_msg and nitro_msg and steam_msg:
-            break
+    movie_msg = await find_storage_message("PRIZE_MOVIE_DATA:")
+    nitro_msg = await find_storage_message("PRIZE_NITRO_DATA:")
+    steam_msg = await find_storage_message("PRIZE_STEAM_DATA:")
     if not (movie_msg and nitro_msg and steam_msg):
         await log_to_bot_channel("Prize storage messages missing → Run /prize_init first")
         return
@@ -586,21 +565,11 @@ async def handle_dead_chat_message(message: discord.Message):
 
 async def init_deadchat_storage():
     global deadchat_storage_message_id, deadchat_last_times
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("DEADCHAT_DATA:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author == bot.user and msg.content.startswith("DEADCHAT_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("init_deadchat_storage: DEADCHAT_DATA message not found. Run /deadchat_init first.")
-        return
-    deadchat_storage_message_id = storage_msg.id
-    raw = storage_msg.content[len("DEADCHAT_DATA:"):]
+    deadchat_storage_message_id = msg.id
+    raw = msg.content[len("DEADCHAT_DATA:"):]
     try:
         data = json.loads(raw or "{}")
         deadchat_last_times.clear()
@@ -609,15 +578,17 @@ async def init_deadchat_storage():
                 deadchat_last_times[int(cid_str)] = ts
             except:
                 pass
-    except:
-        pass
+    except Exception as e:
+        await log_to_bot_channel(f"init_deadchat_storage failed: {e}")
 
 async def save_deadchat_storage():
     global deadchat_storage_message_id
     if STORAGE_CHANNEL_ID == 0 or deadchat_storage_message_id is None:
+        await log_to_bot_channel("save_deadchat_storage: storage id missing")
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not ch or not isinstance(ch, TextChannel):
+        await log_to_bot_channel("save_deadchat_storage: storage channel invalid")
         return
     try:
         msg = await ch.fetch_message(deadchat_storage_message_id)
@@ -632,20 +603,10 @@ async def save_deadchat_storage():
 
 async def init_deadchat_state_storage():
     global deadchat_state_storage_message_id
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("DEADCHAT_STATE:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author == bot.user and msg.content.startswith("DEADCHAT_STATE:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("DEADCHAT_STATE message missing → Run /deadchat_state_init")
-        return
-    deadchat_state_storage_message_id = storage_msg.id
+    deadchat_state_storage_message_id = msg.id
     await load_deadchat_state()
 
 async def load_deadchat_state():
@@ -689,23 +650,12 @@ async def save_deadchat_state():
     except Exception as e:
         await log_to_bot_channel(f"Deadchat state save failed: {e}")
 
-
 async def init_twitch_state_storage():
     global twitch_state_storage_message_id
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("TWITCH_STATE:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=None, oldest_first=False):
-        if msg.author == bot.user and msg.content.startswith("TWITCH_STATE:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("TWITCH_STATE message missing → Run /twitch_state_init")
-        return
-    twitch_state_storage_message_id = storage_msg.id
+    twitch_state_storage_message_id = msg.id
     await load_twitch_state()
 
 async def load_twitch_state():
@@ -1099,6 +1049,26 @@ async def on_member_remove(member: discord.Member):
 
 
 ############### COMMAND GROUPS ###############
+@bot.slash_command(name="storage_debug", description="Show storage message IDs for all systems")
+async def storage_debug(
+    ctx,
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    lines = [
+        f"STORAGE_CHANNEL_ID: {STORAGE_CHANNEL_ID}",
+        f"sticky_storage_message_id: {sticky_storage_message_id}",
+        f"member_join_storage_message_id: {member_join_storage_message_id}",
+        f"plague_storage_message_id: {plague_storage_message_id}",
+        f"deadchat_storage_message_id: {deadchat_storage_message_id}",
+        f"deadchat_state_storage_message_id: {deadchat_state_storage_message_id}",
+        f"movie_prize_storage_message_id: {movie_prize_storage_message_id}",
+        f"nitro_prize_storage_message_id: {nitro_prize_storage_message_id}",
+        f"steam_prize_storage_message_id: {steam_prize_storage_message_id}",
+        f"twitch_state_storage_message_id: {twitch_state_storage_message_id}",
+    ]
+    await ctx.respond("Storage debug:\n" + "\n".join(lines), ephemeral=True)
+
 @bot.slash_command(name="deadchat_rescan", description="Force-scan all dead-chat channels for latest message timestamps")
 async def deadchat_rescan(ctx):
     if not ctx.author.guild_permissions.administrator:
