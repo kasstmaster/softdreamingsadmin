@@ -606,48 +606,29 @@ class SteamPrizeView(BasePrizeView):
 class GameNotificationSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(
-                label="General games",
-                description="Get pinged for any game night",
-                emoji="Gamepad",
-                value="1352405080703504384"
-            ),
-            discord.SelectOption(
-                label="Among Us Vanilla",
-                description="Classic Among Us (no mods)",
-                emoji="Speaking Head",
-                value="1406868589893652520"
-            ),
-            discord.SelectOption(
-                label="Among Us Modded",
-                description="Among Us with extra roles/mods",
-                emoji="Tools",
-                value="1406868685225725976"
-            ),
-            discord.SelectOption(
-                label="Among Us Proximity Chat",
-                description="Among Us with voice proximity",
-                emoji="Microphone",
-                value="1342246913663303702"
-            ),
+            discord.SelectOption(label="General games", value="1352405080703504384"),
+            discord.SelectOption(label="Among Us Vanilla", value="1406868589893652520"),
+            discord.SelectOption(label="Among Us Modded", value="1406868685225725976"),
+            SelectOption(label="Among Us Proximity Chat", value="1342246913663303702"),
         ]
         super().__init__(
             placeholder="Select game notifications…",
             min_values=0,
             max_values=len(options),
             options=options,
-            custom_id="persistent_game_notif_select"
+            custom_id="game_notif_select"
         )
     async def callback(self, interaction: discord.Interaction):
-        selected_ids = [int(x) for x in self.values]
+        selected = [int(x) for x in self.values]
         member = interaction.user
         added = []
         removed = []
-        for option in self.options:
-            role = interaction.guild.get_role(int(option.value))
+        for opt in self.options:
+            role_id = int(opt.value)
+            role = interaction.guild.get_role(role_id)
             if not role:
                 continue
-            if int(option.value) in selected_ids:
+            if role_id in selected:
                 if role not in member.roles:
                     await member.add_roles(role, reason="Game notification opt-in")
                     added.append(role.name)
@@ -655,29 +636,30 @@ class GameNotificationSelect(discord.ui.Select):
                 if role in member.roles:
                     await member.remove_roles(role, reason="Game notification opt-out")
                     removed.append(role.name)
-        message = ""
+        text = ""
         if added:
-            message += "Added: " + ", ".join(added) + "\n"
+            text += "Added: " + ", ".join(added) + "\n"
         if removed:
-            message += "Removed: " + ", ".join(removed) + "\n"
-        if not message:
-            message = "No changes made."
+            text += "Removed: " + ", ".join(removed) + "\n"
+        if not text:
+            text = "No changes."
+        await interaction.response.send_message(text.strip(), ephemeral=True)
 
-        await interaction.response.send_message(message.strip(), ephemeral=True)
-
-
-class GameNotificationView(discord.ui.View):
+class GameNotificationView(d discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # persistent view
-    @discord.ui.button(label="Get Notified", style=discord.ButtonStyle.gray, custom_id="game_notif_button")
-    async def notify_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        view = discord.ui.View(timeout=300)
-        view.add_item(GameNotificationSelect())
+        super().__init__(timeout=None)
+    @discord.ui.button(label="Get Notified", style= discord.ButtonStyle.grey, custom_id="persistent_game_notif_button")
+    async def button(self,  button: discord.ui.Button, interaction:  discord.Interaction):
         await interaction.response.send_message(
             "Choose the game notifications you want:",
-            view=view,
-            ephemeral=True
+            view = GameNotificationSelect(),
+            ephemeral = True
         )
+
+class GameNotificationSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(GameNotificationSelect())
 
 
 ############### AUTOCOMPLETE FUNCTIONS ###############
@@ -717,6 +699,7 @@ async def on_ready():
     bot.add_view(NitroPrizeView())
     bot.add_view(SteamPrizeView())
     bot.add_view(GameNotificationView())
+    bot.add_view(GameNotificationSelectView())
     for guild in bot.guilds:
         found = False
         for channel in guild.text_channels:
@@ -780,8 +763,8 @@ async def on_message(message: discord.Message):
         old_id = sticky_messages.get(message.channel.id)
         if old_id:
             try:
-                old = await message.channel.fetch_message(old_id)
-                await old.delete()
+                old_msg = await message.channel.fetch_message(old_id)
+                await old_msg.delete()
             except discord.NotFound:
                 pass
             except:
@@ -792,11 +775,7 @@ async def on_message(message: discord.Message):
         await save_stickies()
     if message.channel.id in AUTO_DELETE_CHANNEL_IDS:
         content = message.content.lower()
-        if not (
-            "happy birthday" in content
-            or "happy bday" in content
-            or "happy b-day" in content
-        ):
+        if not ("happy birthday" in content or "happy bday" in content or "happy b-day" in content):
             async def delete_later():
                 await asyncio.sleep(DELETE_DELAY_SECONDS)
                 try:
