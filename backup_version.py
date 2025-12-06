@@ -1,4 +1,6 @@
 # ============================================================
+# THIS IS THE ADMIN BOT
+#
 # Grok & ChatGPT RULES FOR THIS FILE (DO NOT VIOLATE)
 #
 # • Use ONLY these sections, in this exact order:
@@ -25,6 +27,7 @@ import aiohttp
 import json
 from datetime import datetime
 from discord import TextChannel
+from discord.ui import Select
 
 ############### CONSTANTS & CONFIG ###############
 intents = discord.Intents.default()
@@ -601,6 +604,69 @@ class SteamPrizeView(BasePrizeView):
     gift_title = "Steam Gift Card"
     rarity = "Rare"
 
+class GameNotificationSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="General games", value="1352405080703504384"),
+            discord.SelectOption(label="Among Us Vanilla", value="1406868589893652520"),
+            discord.SelectOption(label="Among Us Modded", value="1406868685225725976"),
+            discord.SelectOption(label="Among Us Proximity Chat", value="1342246913663303702"),
+        ]
+        super().__init__(
+            placeholder="Select game notifications…",
+            min_values=0,
+            max_values=len(options),
+            options=options,
+            custom_id="game_notif_select"
+        )
+    async def callback(self, interaction: discord.Interaction):
+        selected = [int(x) for x in self.values]
+        member = interaction.user
+        added = []
+        removed = []
+        for opt in self.options:
+            role_id = int(opt.value)
+            role = interaction.guild.get_role(role_id)
+            if not role:
+                continue
+            if role_id in selected:
+                if role not in member.roles:
+                    await member.add_roles(role, reason="Game notification opt-in")
+                    added.append(role.name)
+            else:
+                if role in member.roles:
+                    await member.remove_roles(role, reason="Game notification opt-out")
+                    removed.append(role.name)
+        text = ""
+        if added:
+            text += "Added: " + ", ".join(added) + "\n"
+        if removed:
+            text += "Removed: " + ", ".join(removed) + "\n"
+        if not text:
+            text = "No changes."
+        await interaction.response.send_message(text.strip(), ephemeral=True)
+
+class GameNotificationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Get Notified",
+        style=discord.ButtonStyle.grey,
+        custom_id="game_notif_persistent_button_v9"
+    )
+    async def open_menu(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "Choose the game notifications you want:",
+            view=GameNotificationSelectView(),
+            ephemeral=True
+        )
+
+class GameNotificationSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(GameNotificationSelect())
+
 
 ############### AUTOCOMPLETE FUNCTIONS ###############
 
@@ -638,6 +704,7 @@ async def on_ready():
     bot.add_view(MoviePrizeView())
     bot.add_view(NitroPrizeView())
     bot.add_view(SteamPrizeView())
+    bot.add_view(GameNotificationView())
     for guild in bot.guilds:
         found = False
         for channel in guild.text_channels:
@@ -701,20 +768,19 @@ async def on_message(message: discord.Message):
         old_id = sticky_messages.get(message.channel.id)
         if old_id:
             try:
-                old = await message.channel.fetch_message(old_id)
-                await old.delete()
+                old_msg = await message.channel.fetch_message(old_id)
+                await old_msg.delete()
             except discord.NotFound:
                 pass
-        new_msg = await message.channel.send(sticky_texts[message.channel.id])
+            except:
+                pass
+        view = GameNotificationView()
+        new_msg = await message.channel.send(sticky_texts[message.channel.id], view=view)
         sticky_messages[message.channel.id] = new_msg.id
         await save_stickies()
     if message.channel.id in AUTO_DELETE_CHANNEL_IDS:
         content = message.content.lower()
-        if not (
-            "happy birthday" in content
-            or "happy bday" in content
-            or "happy b-day" in content
-        ):
+        if not ("happy birthday" in content or "happy bday" in content or "happy b-day" in content):
             async def delete_later():
                 await asyncio.sleep(DELETE_DELAY_SECONDS)
                 try:
