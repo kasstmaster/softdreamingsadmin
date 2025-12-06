@@ -274,7 +274,7 @@ Catches missing storage and instructs admins how to repair.
 
 Cleans old Dead Chat announcement messages when a new one fires.
 
-COMPLETE FEATURE SUMMARY (BULLET LIST)
+# COMPLETE FEATURE SUMMARY
 
 Welcome system
 
