@@ -107,6 +107,7 @@ member_join_storage_message_id: int | None = None
 plague_scheduled: list[dict] = []
 plague_storage_message_id: int | None = None
 infected_members: dict[int, str] = {}
+infected_announce_messages: dict[int, int] = {}
 
 
 ############### HELPER FUNCTIONS ###############
@@ -467,6 +468,15 @@ async def handle_dead_chat_message(message: discord.Message):
     for member in list(role.members):
         if member.id != message.author.id:
             await member.remove_roles(role, reason="Dead Chat stolen")
+            msg_id = infected_announce_messages.pop(member.id, None)
+            if msg_id and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
+                ch = message.guild.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
+                if isinstance(ch, discord.TextChannel):
+                    try:
+                        m = await ch.fetch_message(msg_id)
+                        await m.delete()
+                    except:
+                        pass
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
@@ -966,15 +976,7 @@ async def on_member_update(before, after):
             if announce_ch:
                 msg_text = INFECTED_MESSAGE_TEMPLATE.replace("{member}", after.mention)
                 sent = await announce_ch.send(msg_text)
-
-                async def delete_later(m: discord.Message):
-                    await asyncio.sleep(1200)
-                    try:
-                        await m.delete()
-                    except:
-                        pass
-
-                bot.loop.create_task(delete_later(sent))
+                infected_announce_messages[after.id] = sent.id
 
 @bot.event
 async def on_message(message: discord.Message):
