@@ -1,8 +1,5 @@
 # ============================================================
-# THIS IS THE ADMIN BOT
-#
-# Grok & ChatGPT RULES FOR THIS FILE (DO NOT VIOLATE)
-#
+# RULES FOR CHATGPT AND GROK (DO NOT VIOLATE)
 # • Use ONLY these sections, in this exact order:
 #   ############### IMPORTS ###############
 #   ############### CONSTANTS & CONFIG ###############
@@ -14,9 +11,48 @@
 #   ############### EVENT HANDLERS ###############
 #   ############### COMMAND GROUPS ###############
 #   ############### ON_READY & BOT START ###############
-#
 # • Do NOT add any other sections.
-# • Do NOT add comments, notes, or explanations inside the code.
+# • Do NOT add comments inside the code. No inline labels.
+# ============================================================
+# BOT NAME: ADMIN BOT
+# PURPOSE
+# • System backbone: shared storage messages, state load/save, one-time init commands
+# • Entry/exit flow: welcome text, delayed member role, bot join role, boost + birthday messages
+# • Moderation logging: bans, kicks, leaves routed to staff log thread/bot log channel
+# • Dead Chat engine: idle tracking, role steals, daily reset, cooldowns, state persistence
+# • Plague events: schedule contagious days, infect winners, manage infected role + expiry
+# • Prize system: schedule drops, send claim buttons, announce winners with rarity metadata
+# • Sticky messages: per-channel sticky text + recreation on new messages
+# • Game pings: “Get Notified” button + select menu that manages game notification roles
+# • Twitch watcher: poll Twitch API, track live state, send live notifications
+# • Auto-delete: timed deletion for configured channels while allowing birthday messages
+# ============================================================
+# SERVER: Soft Dreamings (≈25 members, ages 25–40)
+# • Private friend group; movie nights, QOTD, games, light role events
+# • Bots: Admin Bot + Member Bot (this file)
+# • Notable Channels:
+#   - #k • one-letter chat
+#   - #codes • game codes
+#   - #graveyard • Dead Chat role, plague events, monthly prize drops
+#   - #movies • movie pool
+#   - #ratings • post-watch ratings
+#   - #qotd • daily questions
+# ROLE ACCESS
+# OWNER
+# • Permissions: Full
+# • Commands: All
+# ADMINS
+# • Permissions: Full admin/moderation
+# • Commands: All in this file
+# TRUSTED
+# • Permissions: Member + announcements + VC status
+# • Commands:
+#   /birthdays /birthdays_public /media_reload /library_sync
+#   /pool_public /pool_remove /qotd_send /random /set_for /remove_for
+# MEMBER
+# • Permissions: Standard chat + VC + app commands
+# • Commands:
+#   /birthdays /set /color /pick /pool /replace /search
 # ============================================================
 
 ############### IMPORTS ###############
@@ -25,7 +61,7 @@ import os
 import asyncio
 import aiohttp
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from discord import TextChannel
 from discord.ui import Select
 
@@ -39,10 +75,10 @@ DEBUG_GUILD_ID = int(os.getenv("DEBUG_GUILD_ID"))
 bot = discord.Bot(intents=intents, debug_guilds=[DEBUG_GUILD_ID])
 
 WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
-ROLE_TO_WATCH = int(os.getenv("ROLE_TO_WATCH"))
+BIRTHDAY_ROLE_ID = int(os.getenv("BIRTHDAY_ROLE_ID"))
 WELCOME_TEXT = os.getenv("WELCOME_TEXT")
 BOOST_TEXT = os.getenv("BOOST_TEXT")
-VIP_TEXT = os.getenv("VIP_TEXT")
+BIRTHDAY_TEXT = os.getenv("BIRTHDAY_TEXT")
 MEMBER_JOIN_ROLE_ID = int(os.getenv("MEMBER_JOIN_ROLE_ID"))
 BOT_JOIN_ROLE_ID = int(os.getenv("BOT_JOIN_ROLE_ID"))
 AUTO_DELETE_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("AUTO_DELETE_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
@@ -54,28 +90,6 @@ TWITCH_CHANNELS = [c.strip().lower() for c in os.getenv("TWITCH_CHANNELS", "").s
 TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID"))
 TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 
-REACTION_ROLE_MESSAGE_ID = int(os.getenv("REACTION_ROLE_MESSAGE_ID"))
-reaction_roles = {}
-_raw_pairs = os.getenv("REACTION_ROLES", "")
-if _raw_pairs:
-    for pair in _raw_pairs.split(","):
-        if ":" in pair:
-            emoji_raw, role_id = pair.split(":", 1)
-            emoji_raw = emoji_raw.strip()
-            role_id = role_id.strip()
-
-            if emoji_raw.startswith("<") and emoji_raw.endswith(">"):
-                try:
-                    parts = emoji_raw.strip("<>").split(":")
-                    name = parts[-2]
-                    key = name
-                except:
-                    key = emoji_raw
-            else:
-                key = emoji_raw
-
-            reaction_roles[key] = int(role_id)
-
 MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
 BOT_LOG_CHANNEL_ID = int(os.getenv("BOT_LOG_CHANNEL_ID", "0"))
 
@@ -86,6 +100,11 @@ DEAD_CHAT_COOLDOWN_SECONDS = int(os.getenv("DEAD_CHAT_COOLDOWN_SECONDS", "0"))
 IGNORE_MEMBER_IDS = {int(x.strip()) for x in os.getenv("IGNORE_MEMBER_IDS", "").split(",") if x.strip().isdigit()}
 MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
+
+PRIZE_PLAGUE_TRIGGER_HOUR_UTC = 12
+INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
+INFECTED_MESSAGE_TEMPLATE = "🦠 **INFECTION OUTBREAK!**"
+INFECTED_ANNOUNCE_CHANNEL_ID = int(os.getenv("INFECTED_ANNOUNCE_CHANNEL_ID", "0"))
 
 STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
 
@@ -117,6 +136,14 @@ steam_scheduled_prizes: list[dict] = []
 sticky_messages: dict[int, int] = {}
 sticky_texts: dict[int, str] = {}
 sticky_storage_message_id: int | None = None
+
+pending_member_joins: list[dict] = []
+member_join_storage_message_id: int | None = None
+
+plague_scheduled: list[dict] = []
+plague_storage_message_id: int | None = None
+infected_members: dict[int, str] = {}
+infected_announce_messages: dict[int, int] = {}
 
 
 ############### HELPER FUNCTIONS ###############
@@ -192,6 +219,130 @@ async def save_stickies():
         await msg.edit(content="STICKY_DATA:" + json.dumps(data))
     except:
         pass
+
+async def init_member_join_storage():
+    global member_join_storage_message_id, pending_member_joins
+    if STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return
+    storage_msg = None
+    async for msg in ch.history(limit=50, oldest_first=True):
+        if msg.author == bot.user and msg.content.startswith("MEMBERJOIN_DATA:"):
+            storage_msg = msg
+            break
+    if not storage_msg:
+        await log_to_bot_channel("MEMBERJOIN_DATA message not found → Run /memberjoin_init first")
+        return
+    member_join_storage_message_id = storage_msg.id
+    raw = storage_msg.content[len("MEMBERJOIN_DATA:"):]
+    try:
+        data = json.loads(raw or "[]")
+        if isinstance(data, list):
+            pending_member_joins[:] = data
+        else:
+            pending_member_joins[:] = []
+    except:
+        pending_member_joins[:] = []
+
+async def save_member_join_storage():
+    if STORAGE_CHANNEL_ID == 0 or member_join_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch or not isinstance(ch, TextChannel):
+        return
+    try:
+        msg = await ch.fetch_message(member_join_storage_message_id)
+        await msg.edit(content="MEMBERJOIN_DATA:" + json.dumps(pending_member_joins))
+    except:
+        pass
+
+async def init_plague_storage():
+    global plague_storage_message_id, plague_scheduled, infected_members
+    if STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return
+    storage_msg = None
+    async for msg in ch.history(limit=50, oldest_first=True):
+        if msg.author == bot.user and msg.content.startswith("PLAGUE_DATA:"):
+            storage_msg = msg
+            break
+    if not storage_msg:
+        await log_to_bot_channel("Plague storage missing → Run /plague_init")
+        return
+    plague_storage_message_id = storage_msg.id
+    try:
+        raw = storage_msg.content[len("PLAGUE_DATA:"):]
+        data = json.loads(raw or "[]")
+        plague_scheduled.clear()
+        infected_members.clear()
+        if isinstance(data, list):
+            plague_scheduled.extend(data)
+        elif isinstance(data, dict):
+            plague_scheduled.extend(data.get("scheduled", []))
+            infected_raw = data.get("infected", {})
+            for mid_str, ts in infected_raw.items():
+                try:
+                    infected_members[int(mid_str)] = ts
+                except:
+                    pass
+    except:
+        pass
+
+async def save_plague_storage():
+    if STORAGE_CHANNEL_ID == 0 or plague_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch or not isinstance(ch, TextChannel):
+        return
+    payload = {
+        "scheduled": plague_scheduled,
+        "infected": {str(k): v for k, v in infected_members.items()},
+    }
+    try:
+        msg = await ch.fetch_message(plague_storage_message_id)
+        await msg.edit(content="PLAGUE_DATA:" + json.dumps(payload))
+    except:
+        pass
+
+async def trigger_plague_infection(member: discord.Member):
+    infected_role = member.guild.get_role(INFECTED_ROLE_ID)
+    if not infected_role or infected_role in member.roles:
+        return
+    await member.add_roles(infected_role, reason="Caught the monthly Dead Chat plague")
+    await member.guild.get_channel(DEAD_CHAT_CHANNEL_IDS[0]).send(
+        f"**ALERT** {member.mention} has been **INFECTED** for 3 days! 🤢"
+    )
+    expires_at = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
+    infected_members[member.id] = expires_at
+    plague_scheduled.clear()
+    await save_plague_storage()
+
+async def check_plague_active():
+    if not plague_scheduled or INFECTED_ROLE_ID == 0:
+        return False
+    now = datetime.utcnow()
+    for entry in plague_scheduled:
+        start_str = entry.get("start")
+        if start_str:
+            try:
+                start = datetime.fromisoformat(start_str.replace("Z", ""))
+            except:
+                continue
+        else:
+            date_str = entry.get("date")
+            if not date_str:
+                continue
+            try:
+                start = datetime.fromisoformat(date_str + "T00:00:00")
+            except:
+                continue
+        if now >= start:
+            return True
+    return False
 
 def parse_schedule_datetime(when: str) -> datetime | None:
     try:
@@ -300,7 +451,7 @@ async def run_scheduled_prize(prize_type: str, prize_id: int):
     entries[:] = [p for p in entries if p.get("id") != prize_id]
     await save_prize_storage()
 
-async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, send_at: datetime):
+async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, date_str: str):
     if prize_type == "movie":
         entries = movie_scheduled_prizes
     elif prize_type == "nitro":
@@ -316,11 +467,10 @@ async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, se
             "id": new_id,
             "channel_id": channel_id,
             "content": content,
-            "send_at": send_at.strftime("%Y-%m-%d %H:%M"),
+            "date": date_str,
         }
     )
     await save_prize_storage()
-    bot.loop.create_task(run_scheduled_prize(prize_type, new_id))
 
 async def initialize_dead_chat():
     global dead_current_holder_id
@@ -356,7 +506,7 @@ async def handle_dead_chat_message(message: discord.Message):
     if (now - last_time).total_seconds() < DEAD_CHAT_IDLE_SECONDS:
         return
     role = message.guild.get_role(DEAD_CHAT_ROLE_ID)
-    if not role or role in message.author.roles:
+    if not role:
         return
     if DEAD_CHAT_COOLDOWN_SECONDS > 0:
         last_win = dead_last_win_time.get(message.author.id)
@@ -365,9 +515,50 @@ async def handle_dead_chat_message(message: discord.Message):
     for member in list(role.members):
         if member.id != message.author.id:
             await member.remove_roles(role, reason="Dead Chat stolen")
+            msg_id = infected_announce_messages.pop(member.id, None)
+            if msg_id and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
+                ch = message.guild.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
+                if isinstance(ch, discord.TextChannel):
+                    try:
+                        m = await ch.fetch_message(msg_id)
+                        await m.delete()
+                    except:
+                        pass
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
+
+    today_str = now.strftime("%Y-%m-%d")
+    hour_utc = now.hour
+    triggered_plague = False
+    if hour_utc >= PRIZE_PLAGUE_TRIGGER_HOUR_UTC and plague_scheduled:
+        for entry in list(plague_scheduled):
+            if entry.get("date") == today_str:
+                await trigger_plague_infection(message.author)
+                triggered_plague = True
+                break
+
+    triggered_prize = False
+    if hour_utc >= PRIZE_PLAGUE_TRIGGER_HOUR_UTC:
+        for prize_list, view_cls in [
+            (movie_scheduled_prizes, MoviePrizeView),
+            (nitro_scheduled_prizes, NitroPrizeView),
+            (steam_scheduled_prizes, SteamPrizeView)
+        ]:
+            matching = [p for p in prize_list if p.get("date") == today_str]
+            if matching:
+                triggered_prize = True
+            for p in matching:
+                channel_id = p.get("channel_id") or message.channel.id
+                channel = message.guild.get_channel(channel_id)
+                if not channel:
+                    channel = message.channel
+                view = view_cls()
+                await channel.send(p.get("content", ""), view=view)
+            prize_list[:] = [p for p in prize_list if p.get("date") != today_str]
+        if triggered_prize:
+            await save_prize_storage()
+
     for old_cid, mid in list(dead_last_notice_message_ids.items()):
         if mid:
             ch = message.guild.get_channel(old_cid)
@@ -378,10 +569,12 @@ async def handle_dead_chat_message(message: discord.Message):
                 except:
                     pass
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
-    notice = await message.channel.send(
-        f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
-        "-# There's a random chance to win prizes with this role."
-    )
+    notice_text = f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
+    if triggered_plague:
+        notice_text += "-# The graveyard was contagious today… one victim has been chosen."
+    else:
+        notice_text += "-# There's a random chance to win prizes with this role."
+    notice = await message.channel.send(notice_text)
     dead_last_notice_message_ids[message.channel.id] = notice.id
     await save_deadchat_state()
 
@@ -695,55 +888,101 @@ async def twitch_watcher():
                 await save_twitch_state()
         await asyncio.sleep(60)
 
+async def infected_watcher():
+    await bot.wait_until_ready()
+    if INFECTED_ROLE_ID == 0:
+        return
+    while not bot.is_closed():
+        now = datetime.utcnow()
+        expired_ids = []
+        for mid, ts in list(infected_members.items()):
+            try:
+                expires = datetime.fromisoformat(ts.replace("Z", ""))
+            except:
+                continue
+            if now >= expires:
+                expired_ids.append(mid)
+        if expired_ids:
+            for guild in bot.guilds:
+                role = guild.get_role(INFECTED_ROLE_ID)
+                if not role:
+                    continue
+                for mid in expired_ids:
+                    member = guild.get_member(mid)
+                    if member and role in member.roles:
+                        try:
+                            await member.remove_roles(role, reason="Plague expired")
+                        except:
+                            pass
+            for mid in expired_ids:
+                infected_members.pop(mid, None)
+            await save_plague_storage()
+        await asyncio.sleep(3600)
+
+async def member_join_watcher():
+    await bot.wait_until_ready()
+    if MEMBER_JOIN_ROLE_ID == 0:
+        return
+    while not bot.is_closed():
+        now = datetime.utcnow()
+        remaining = []
+        changed = False
+        for entry in pending_member_joins:
+            assign_at_str = entry.get("assign_at")
+            guild_id = entry.get("guild_id")
+            member_id = entry.get("member_id")
+            if not assign_at_str or not guild_id or not member_id:
+                continue
+            try:
+                assign_at = datetime.fromisoformat(assign_at_str.replace("Z", ""))
+            except:
+                continue
+            if now >= assign_at:
+                guild = bot.get_guild(guild_id)
+                if not guild:
+                    continue
+                member = guild.get_member(member_id)
+                if not member:
+                    continue
+                role = guild.get_role(MEMBER_JOIN_ROLE_ID)
+                if not role:
+                    continue
+                if role not in member.roles:
+                    try:
+                        await member.add_roles(role, reason="Delayed member join role")
+                    except:
+                        pass
+                changed = True
+            else:
+                remaining.append(entry)
+        if changed or len(remaining) != len(pending_member_joins):
+            pending_member_joins[:] = remaining
+            await save_member_join_storage()
+        await asyncio.sleep(300)
+
 
 ############### EVENT HANDLERS ###############
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online!")
-    bot.loop.create_task(twitch_watcher())
     bot.add_view(MoviePrizeView())
     bot.add_view(NitroPrizeView())
     bot.add_view(SteamPrizeView())
     bot.add_view(GameNotificationView())
-    for guild in bot.guilds:
-        found = False
-        for channel in guild.text_channels:
-            try:
-                msg = await channel.fetch_message(REACTION_ROLE_MESSAGE_ID)
-            except discord.NotFound:
-                continue
-            except discord.Forbidden:
-                continue
-            except discord.HTTPException:
-                continue
-            else:
-                for emoji in reaction_roles:
-                    try:
-                        await msg.add_reaction(emoji)
-                    except:
-                        pass
-                found = True
-                break
-        if found:
-            break
     await init_sticky_storage()
     await init_prize_storage()
     await init_deadchat_storage()
     await init_deadchat_state_storage()
     await init_twitch_state_storage()
+    await init_plague_storage()
+    await init_member_join_storage()
+    bot.loop.create_task(twitch_watcher())
+    bot.loop.create_task(infected_watcher())
+    bot.loop.create_task(member_join_watcher())
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
         await initialize_dead_chat()
-        for prize_list, prize_type in [
-            (movie_scheduled_prizes, "movie"),
-            (nitro_scheduled_prizes,  "nitro"),
-            (steam_scheduled_prizes,  "steam")
-        ]:
-            for p in prize_list:
-                pid = p.get("id")
-                if pid is not None:
-                    bot.loop.create_task(run_scheduled_prize(prize_type, pid))
 
 @bot.event
 async def on_member_update(before, after):
@@ -751,13 +990,21 @@ async def on_member_update(before, after):
     if not ch:
         return
     if before.premium_since is None and after.premium_since:
-        if BOOST_TEXT:  # Added check
+        if BOOST_TEXT:
             await ch.send(BOOST_TEXT.replace("{mention}", after.mention))
     new_roles = set(after.roles) - set(before.roles)
     for role in new_roles:
-        if role.id == ROLE_TO_WATCH:
-            if VIP_TEXT:  # Added check
-                await ch.send(VIP_TEXT.replace("{mention}", after.mention))
+        if role.id == BIRTHDAY_ROLE_ID:
+            if BIRTHDAY_TEXT:
+                await ch.send(BIRTHDAY_TEXT.replace("{mention}", after.mention))
+    if INFECTED_ROLE_ID != 0 and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
+        infected_role = after.guild.get_role(INFECTED_ROLE_ID)
+        if infected_role and infected_role in new_roles:
+            announce_ch = bot.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
+            if announce_ch:
+                msg_text = INFECTED_MESSAGE_TEMPLATE.replace("{member}", after.mention)
+                sent = await announce_ch.send(msg_text)
+                infected_announce_messages[after.id] = sent.id
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -803,13 +1050,15 @@ async def on_member_join(member: discord.Member):
     if ch and WELCOME_TEXT:
         await ch.send(WELCOME_TEXT.replace("{mention}", member.mention))
     if MEMBER_JOIN_ROLE_ID:
-        async def delayed_role():
-            await asyncio.sleep(86400)
-            if member in member.guild.members:
-                role = member.guild.get_role(MEMBER_JOIN_ROLE_ID)
-                if role:
-                    await member.add_roles(role)
-        bot.loop.create_task(delayed_role())
+        assign_at = datetime.utcnow() + timedelta(days=1)
+        pending_member_joins.append(
+            {
+                "guild_id": member.guild.id,
+                "member_id": member.id,
+                "assign_at": assign_at.isoformat() + "Z",
+            }
+        )
+        await save_member_join_storage()
 
 @bot.event
 async def on_member_ban(guild, user):
@@ -843,44 +1092,6 @@ async def on_member_remove(member: discord.Member):
     else:
         await log_fn(f"{member.mention} has left the server")
 
-@bot.event
-async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    if payload.message_id != REACTION_ROLE_MESSAGE_ID:
-        return
-    if payload.emoji.is_custom_emoji():
-        key = payload.emoji.name
-    else:
-        key = str(payload.emoji)
-    role_id = reaction_roles.get(key)
-    if not role_id:
-        return
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
-    role = guild.get_role(role_id)
-    member = guild.get_member(payload.user_id)
-    if role and member and not member.bot:
-        await member.add_roles(role)
-
-@bot.event
-async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
-    if payload.message_id != REACTION_ROLE_MESSAGE_ID:
-        return
-    if payload.emoji.is_custom_emoji():
-        key = payload.emoji.name
-    else:
-        key = str(payload.emoji)
-    role_id = reaction_roles.get(key)
-    if not role_id:
-        return
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
-    role = guild.get_role(role_id)
-    member = guild.get_member(payload.user_id)
-    if role and member and not member.bot:
-        await member.remove_roles(role)
-
 
 ############### COMMAND GROUPS ###############
 @bot.slash_command(name="deadchat_rescan", description="Force-scan all dead-chat channels for latest message timestamps")
@@ -905,6 +1116,18 @@ async def deadchat_rescan(ctx):
         await save_deadchat_storage()
     await ctx.respond(f"Rescan complete — found latest message in {count}/{len(DEAD_CHAT_CHANNEL_IDS)} dead-chat channels and saved timestamps.", ephemeral=True)
 
+@bot.slash_command(name="memberjoin_init", description="Create member-join storage message")
+async def memberjoin_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("MEMBERJOIN_DATA:[]")
+    global member_join_storage_message_id
+    member_join_storage_message_id = msg.id
+    await ctx.respond(f"Member join storage created: {msg.id}", ephemeral=True)
+
 @bot.slash_command(name="deadchat_state_init", description="Create DEADCHAT_STATE storage message")
 async def deadchat_state_init(ctx):
     if not ctx.author.guild_permissions.administrator:
@@ -913,6 +1136,9 @@ async def deadchat_state_init(ctx):
     if not isinstance(ch, discord.TextChannel):
         return await ctx.respond("Invalid storage channel", ephemeral=True)
     msg = await ch.send("DEADCHAT_STATE:{\"current_holder\":null,\"last_win_times\":{},\"notice_msg_ids\":{}}")
+    global deadchat_state_storage_message_id
+    deadchat_state_storage_message_id = msg.id
+    await save_deadchat_state()
     await ctx.respond(f"Created DEADCHAT_STATE message: {msg.id}", ephemeral=True)
 
 @bot.slash_command(name="twitch_state_init", description="Create TWITCH_STATE storage message")
@@ -923,8 +1149,11 @@ async def twitch_state_init(ctx):
     if not isinstance(ch, discord.TextChannel):
         return await ctx.respond("Invalid storage channel", ephemeral=True)
     msg = await ch.send("TWITCH_STATE:{}")
+    global twitch_state_storage_message_id
+    twitch_state_storage_message_id = msg.id
+    await save_twitch_state()
     await ctx.respond(f"Created TWITCH_STATE message: {msg.id}", ephemeral=True)
-    
+
 @bot.slash_command(name="prize_init", description="Manually create prize storage messages")
 async def prize_init(ctx):
     if not ctx.author.guild_permissions.administrator:
@@ -939,6 +1168,7 @@ async def prize_init(ctx):
     movie_prize_storage_message_id = movie_msg.id
     nitro_prize_storage_message_id = nitro_msg.id
     steam_prize_storage_message_id = steam_msg.id
+    await save_prize_storage()
     await ctx.respond(f"Prize storage messages created:\nMovie: {movie_msg.id}\nNitro: {nitro_msg.id}\nSteam: {steam_msg.id}", ephemeral=True)
 
 @bot.slash_command(name="sticky_init", description="Manually create sticky storage message")
@@ -951,6 +1181,7 @@ async def sticky_init(ctx):
     msg = await ch.send("STICKY_DATA:{}")
     global sticky_storage_message_id
     sticky_storage_message_id = msg.id
+    await save_stickies()
     await ctx.respond(f"Sticky storage message created: {msg.id}", ephemeral=True)
 
 @bot.slash_command(name="deadchat_init", description="Manually create deadchat storage message")
@@ -963,6 +1194,7 @@ async def deadchat_init(ctx):
     msg = await ch.send("DEADCHAT_DATA:{}")
     global deadchat_storage_message_id
     deadchat_storage_message_id = msg.id
+    await save_deadchat_storage()
     await ctx.respond(f"Deadchat storage message created: {msg.id}", ephemeral=True)
     
 @bot.slash_command(name="say", description="Make the bot say something right here")
@@ -979,7 +1211,7 @@ async def birthday_announce(ctx, member: discord.Option(discord.Member, "Member"
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if not ch:
         return await ctx.respond("Welcome channel not found.", ephemeral=True)
-    msg = VIP_TEXT.replace("{mention}", member.mention) if VIP_TEXT else f"Happy birthday, {member.mention}!"
+    msg = BIRTHDAY_TEXT.replace("{mention}", member.mention) if BIRTHDAY_TEXT else f"Happy birthday, {member.mention}!"
     await ch.send(msg)
     await ctx.respond(f"Sent birthday message for {member.mention}.", ephemeral=True)
 
@@ -1019,7 +1251,7 @@ async def prize_list(
         return await ctx.respond("No scheduled prizes.", ephemeral=True)
     lines = []
     for p in entries:
-        lines.append(f"ID {p['id']} ┃ {p['send_at']} UTC ┃ <#{p['channel_id']}>")
+        lines.append(f"ID {p['id']} ┃ {p['date']} ┃ <#{p['channel_id']}>")
     text = "\n".join(lines)
     await ctx.respond(f"Scheduled {prize_type} prizes:\n{text}", ephemeral=True)
 
@@ -1047,90 +1279,90 @@ async def prize_movie(
     ctx,
     month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Movie Request*\nDrop Rate: *Common*"
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         return await ctx.respond(content, view=MoviePrizeView())
-    if month is None or day is None or hour is None:
-        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    if month is None or day is None:
+        return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
     month_num = MONTH_TO_NUM.get(month)
     if not month_num:
         return await ctx.respond("Invalid month.", ephemeral=True)
     now = datetime.utcnow()
     try:
-        send_at = datetime(now.year, month_num, day, hour, 0)
+        target = datetime(now.year, month_num, day, 0, 0)
     except ValueError:
         return await ctx.respond("Invalid date.", ephemeral=True)
-    if send_at <= now:
+    if target.date() < now.date():
         try:
-            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+            target = datetime(now.year + 1, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-    await add_scheduled_prize("movie", ctx.channel.id, content, send_at)
-    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    await add_scheduled_prize("movie", ctx.channel.id, content, date_str)
+    await ctx.respond(f"Scheduled for {date_str} (triggers on first Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC).", ephemeral=True)
     
 @bot.slash_command(name="prize_nitro")
 async def prize_nitro(
     ctx,
     month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Month of Nitro Basic*\nDrop Rate: *Uncommon*"
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         return await ctx.respond(content, view=NitroPrizeView())
-    if month is None or day is None or hour is None:
-        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    if month is None or day is None:
+        return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
     month_num = MONTH_TO_NUM.get(month)
     if not month_num:
         return await ctx.respond("Invalid month.", ephemeral=True)
     now = datetime.utcnow()
     try:
-        send_at = datetime(now.year, month_num, day, hour, 0)
+        target = datetime(now.year, month_num, day, 0, 0)
     except ValueError:
         return await ctx.respond("Invalid date.", ephemeral=True)
-    if send_at <= now:
+    if target.date() < now.date():
         try:
-            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+            target = datetime(now.year + 1, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-    await add_scheduled_prize("nitro", ctx.channel.id, content, send_at)
-    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    await add_scheduled_prize("nitro", ctx.channel.id, content, date_str)
+    await ctx.respond(f"Scheduled for {date_str} (triggers on first Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC).", ephemeral=True)
 
 @bot.slash_command(name="prize_steam")
 async def prize_steam(
     ctx,
     month: discord.Option(str, "Month (UTC date)", required=False, choices=MONTH_CHOICES),
     day: discord.Option(int, "Day of month", required=False),
-    hour: discord.Option(int, "Hour (0-23, UTC)", required=False),
 ):
     if not ctx.author.guild_permissions.administrator:
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Steam Gift Card*\nDrop Rate: *Rare*"
-    if month is None and day is None and hour is None:
+    if month is None and day is None:
         return await ctx.respond(content, view=SteamPrizeView())
-    if month is None or day is None or hour is None:
-        return await ctx.respond("Provide month, day, and hour, or leave all blank.", ephemeral=True)
+    if month is None or day is None:
+        return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
     month_num = MONTH_TO_NUM.get(month)
     if not month_num:
         return await ctx.respond("Invalid month.", ephemeral=True)
     now = datetime.utcnow()
     try:
-        send_at = datetime(now.year, month_num, day, hour, 0)
+        target = datetime(now.year, month_num, day, 0, 0)
     except ValueError:
         return await ctx.respond("Invalid date.", ephemeral=True)
-    if send_at <= now:
+    if target.date() < now.date():
         try:
-            send_at = datetime(now.year + 1, month_num, day, hour, 0)
+            target = datetime(now.year + 1, month_num, day, 0, 0)
         except ValueError:
             return await ctx.respond("Invalid date.", ephemeral=True)
-    await add_scheduled_prize("steam", ctx.channel.id, content, send_at)
-    await ctx.respond(f"Scheduled for {send_at.strftime('%Y-%m-%d %H:%M')} UTC.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    await add_scheduled_prize("steam", ctx.channel.id, content, date_str)
+    await ctx.respond(f"Scheduled for {date_str} (triggers on first Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC).", ephemeral=True)
 
 @bot.slash_command(name="prize_announce")
 async def prize_announce(ctx, member: discord.Option(discord.Member, required=True), prize: discord.Option(str, choices=list(PRIZE_DEFS.keys()), required=True)):
@@ -1176,6 +1408,58 @@ async def sticky(ctx, action: discord.Option(str, choices=["set", "clear"], requ
                 pass
         await save_stickies()
         await ctx.respond("Sticky cleared.", ephemeral=True)
+
+@bot.slash_command(name="plague_init", description="Create plague storage message (run once)")
+async def plague_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("PLAGUE_DATA:[]")
+    global plague_storage_message_id
+    plague_storage_message_id = msg.id
+    await save_plague_storage()
+    await ctx.respond(f"Plague storage created: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="plague_infect", description="Schedule a contagious Dead Chat day")
+async def plague_infect(
+    ctx,
+    month: discord.Option(str, "Month", required=False, choices=MONTH_CHOICES),
+    day: discord.Option(int, "Day of month", required=False),
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    now = datetime.utcnow()
+    if month is None and day is None:
+        target = now
+    else:
+        if month is None or day is None:
+            return await ctx.respond("Provide both month and day, or leave both blank.", ephemeral=True)
+        month_num = MONTH_TO_NUM.get(month)
+        if not month_num:
+            return await ctx.respond("Invalid month.", ephemeral=True)
+        try:
+            target = datetime(now.year, month_num, day, 0, 0)
+        except ValueError:
+            return await ctx.respond("Invalid date.", ephemeral=True)
+        if target.date() < now.date():
+            try:
+                target = datetime(now.year + 1, month_num, day, 0, 0)
+            except ValueError:
+                return await ctx.respond("Invalid date.", ephemeral=True)
+    date_str = target.strftime("%Y-%m-%d")
+    plague_scheduled.clear()
+    plague_scheduled.append(
+        {
+            "date": date_str,
+        }
+    )
+    await save_plague_storage()
+    if month is None:
+        await ctx.respond(f"Plague set for today. First Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC will be infected.", ephemeral=True)
+    else:
+        await ctx.respond(f"Plague scheduled for {date_str}. First Dead Chat steal after {PRIZE_PLAGUE_TRIGGER_HOUR_UTC}:00 UTC will be infected.", ephemeral=True)
 
 
 ############### ON_READY & BOT START ###############
