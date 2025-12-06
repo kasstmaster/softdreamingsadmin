@@ -344,12 +344,6 @@ async def check_plague_active():
             return True
     return False
 
-def parse_schedule_datetime(when: str) -> datetime | None:
-    try:
-        return datetime.strptime(when, "%Y-%m-%d %H:%M")
-    except ValueError:
-        return None
-
 async def init_prize_storage():
     global movie_prize_storage_message_id, nitro_prize_storage_message_id, steam_prize_storage_message_id
     global movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes
@@ -385,6 +379,18 @@ async def init_prize_storage():
     movie_scheduled_prizes = safe_load(movie_msg.content, "PRIZE_MOVIE_DATA:")
     nitro_scheduled_prizes = safe_load(nitro_msg.content, "PRIZE_NITRO_DATA:")
     steam_scheduled_prizes = safe_load(steam_msg.content, "PRIZE_STEAM_DATA:")
+    changed = False
+    for prize_list in (movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes):
+        for p in prize_list:
+            if "date" not in p:
+                send_at = p.get("send_at")
+                if isinstance(send_at, str) and send_at.strip():
+                    parts = send_at.split()
+                    if parts:
+                        p["date"] = parts[0]
+                        changed = True
+    if changed:
+        await save_prize_storage()
 
 async def save_prize_storage():
     if STORAGE_CHANNEL_ID == 0:
@@ -412,44 +418,6 @@ def get_prize_list_and_entries(prize_type: str):
     if prize_type == "steam":
         return steam_scheduled_prizes
     return None
-
-async def run_scheduled_prize(prize_type: str, prize_id: int):
-    if prize_type == "movie":
-        entries = movie_scheduled_prizes
-        view_cls = MoviePrizeView
-    elif prize_type == "nitro":
-        entries = nitro_scheduled_prizes
-        view_cls = NitroPrizeView
-    elif prize_type == "steam":
-        entries = steam_scheduled_prizes
-        view_cls = SteamPrizeView
-    else:
-        return
-    record = None
-    for p in entries:
-        if p.get("id") == prize_id:
-            record = p
-            break
-    if not record:
-        return
-    send_at = parse_schedule_datetime(record.get("send_at", ""))
-    if not send_at:
-        return
-    now = datetime.utcnow()
-    delay = (send_at - now).total_seconds()
-    if delay > 0:
-        await asyncio.sleep(delay)
-    channel_id = record.get("channel_id")
-    content = record.get("content")
-    if not channel_id or not content:
-        return
-    channel = bot.get_channel(channel_id)
-    if not channel:
-        return
-    view = view_cls()
-    await channel.send(content, view=view)
-    entries[:] = [p for p in entries if p.get("id") != prize_id]
-    await save_prize_storage()
 
 async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, date_str: str):
     if prize_type == "movie":
@@ -545,7 +513,17 @@ async def handle_dead_chat_message(message: discord.Message):
             (nitro_scheduled_prizes, NitroPrizeView),
             (steam_scheduled_prizes, SteamPrizeView)
         ]:
-            matching = [p for p in prize_list if p.get("date") == today_str]
+            matching = []
+            for p in prize_list:
+                d = p.get("date")
+                if not d:
+                    send_at = p.get("send_at")
+                    if isinstance(send_at, str) and send_at.strip():
+                        parts = send_at.split()
+                        if parts:
+                            d = parts[0]
+                if d == today_str:
+                    matching.append(p)
             if matching:
                 triggered_prize = True
             for p in matching:
@@ -555,7 +533,19 @@ async def handle_dead_chat_message(message: discord.Message):
                     channel = message.channel
                 view = view_cls()
                 await channel.send(p.get("content", ""), view=view)
-            prize_list[:] = [p for p in prize_list if p.get("date") != today_str]
+            if matching:
+                new_list = []
+                for p in prize_list:
+                    d = p.get("date")
+                    if not d:
+                        send_at = p.get("send_at")
+                        if isinstance(send_at, str) and send_at.strip():
+                            parts = send_at.split()
+                            if parts:
+                                d = parts[0]
+                    if d != today_str:
+                        new_list.append(p)
+                prize_list[:] = new_list
         if triggered_prize:
             await save_prize_storage()
 
@@ -1251,7 +1241,16 @@ async def prize_list(
         return await ctx.respond("No scheduled prizes.", ephemeral=True)
     lines = []
     for p in entries:
-        lines.append(f"ID {p['id']} ┃ {p['date']} ┃ <#{p['channel_id']}>")
+        d = p.get("date")
+        if not d:
+            send_at = p.get("send_at")
+            if isinstance(send_at, str) and send_at.strip():
+                parts = send_at.split()
+                if parts:
+                    d = parts[0]
+        if not d:
+            d = "unknown-date"
+        lines.append(f"ID {p.get('id', '?')} ┃ {d} ┃ <#{p.get('channel_id', ctx.channel.id)}>")
     text = "\n".join(lines)
     await ctx.respond(f"Scheduled {prize_type} prizes:\n{text}", ephemeral=True)
 
