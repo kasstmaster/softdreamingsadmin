@@ -1237,7 +1237,7 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
     await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
 
-@bot.slash@bot.slash_command(name="prize_list", description="List scheduled prizes")
+@bot.slash_command(name="prize_list", description="List scheduled prizes")
 async def prize_list(
     ctx,
     prize_type: discord.Option(str, choices=["movie", "nitro", "steam"], required=True),
