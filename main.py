@@ -88,7 +88,7 @@ MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July",
 MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
 
 INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
-INFECTED_ANNOUNCE_CHANNEL_ID = int(os.getenv("INFECTED_ANNOUNCE_CHANNEL_ID", "0"))
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", "0"))
 INFECTED_MESSAGE_TEMPLATE = os.getenv("INFECTED_MESSAGE_TEMPLATE", "{member} has an infection... gross.")
 
 STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
@@ -830,10 +830,10 @@ async def on_member_update(before, after):
         if role.id == ROLE_TO_WATCH:
             if VIP_TEXT:
                 await ch.send(VIP_TEXT.replace("{mention}", after.mention))
-    if INFECTED_ROLE_ID != 0 and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
+    if INFECTED_ROLE_ID != 0 and WELCOME_CHANNEL_ID != 0:
         infected_role = after.guild.get_role(INFECTED_ROLE_ID)
         if infected_role and infected_role in new_roles:
-            announce_ch = bot.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
+            announce_ch = bot.get_channel(WELCOME_CHANNEL_ID)
             if announce_ch:
                 msg = INFECTED_MESSAGE_TEMPLATE.replace("{member}", after.mention)
                 await announce_ch.send(msg)
