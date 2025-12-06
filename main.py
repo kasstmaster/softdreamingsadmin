@@ -67,7 +67,7 @@ MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
 DEAD_CHAT_RESET_HOUR_UTC = int(os.getenv("DEAD_CHAT_RESET_HOUR_UTC", "0"))
 
 INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
-INFECTED_MESSAGE_TEMPLATE = "**INFECTION OUTBREAK!**\nand you caught it...\n*gross*"
+INFECTED_MESSAGE_TEMPLATE = "🦠 **INFECTION OUTBREAK!**"
 INFECTED_ANNOUNCE_CHANNEL_ID = int(os.getenv("INFECTED_ANNOUNCE_CHANNEL_ID", "0"))
 
 STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
