@@ -610,7 +610,7 @@ class GameNotificationSelect(discord.ui.Select):
             discord.SelectOption(label="General games", value="1352405080703504384"),
             discord.SelectOption(label="Among Us Vanilla", value="1406868589893652520"),
             discord.SelectOption(label="Among Us Modded", value="1406868685225725976"),
-            SelectOption(label="Among Us Proximity Chat", value="1342246913663303702"),
+            discord.SelectOption(label="Among Us Proximity Chat", value="1342246913663303702"),
         ]
         super().__init__(
             placeholder="Select game notifications…",
@@ -653,7 +653,7 @@ class GameNotificationView(discord.ui.View):
     @discord.ui.button(
         label="Get Notified",
         style=discord.ButtonStyle.grey,
-        custom_id="game_notif_persistent_button_123"
+        custom_id="game_notif_persistent_button_v9"
     )
     async def open_menu(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.send_message(
@@ -705,7 +705,6 @@ async def on_ready():
     bot.add_view(NitroPrizeView())
     bot.add_view(SteamPrizeView())
     bot.add_view(GameNotificationView())
-    bot.add_view(GameNotificationSelectView())
     for guild in bot.guilds:
         found = False
         for channel in guild.text_channels:
