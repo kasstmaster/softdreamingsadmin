@@ -117,6 +117,8 @@ steam_scheduled_prizes: list[dict] = []
 sticky_messages: dict[int, int] = {}
 sticky_texts: dict[int, str] = {}
 sticky_storage_message_id: int | None = None
+plague_scheduled: list[dict] = []
+plague_storage_message_id: int | None = None
 
 
 ############### HELPER FUNCTIONS ###############
@@ -192,6 +194,65 @@ async def save_stickies():
         await msg.edit(content="STICKY_DATA:" + json.dumps(data))
     except:
         pass
+
+async def init_plague_storage():
+    global plague_storage_message_id
+    if STORAGE_CHANNEL_ID == 0:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return
+    storage_msg = None
+    async for msg in ch.history(limit=50, oldest_first=True):
+        if msg.author == bot.user and msg.content.startswith("PLAGUE_DATA:"):
+            storage_msg = msg
+            break
+    if not storage_msg:
+        await log_to_bot_channel("Plague storage missing → Run /plague_init")
+        return
+    plague_storage_message_id = storage_msg.id
+    try:
+        data = json.loads(storage_msg.content[len("PLAGUE_DATA:"):])
+        plague_scheduled.clear()
+        plague_scheduled.extend(data)
+    except:
+        pass
+
+async def save_plague_storage():
+    if STORAGE_CHANNEL_ID == 0 or plague_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch or not isinstance(ch, TextChannel):
+        return
+    try:
+        msg = await ch.fetch_message(plague_storage_message_id)
+        await msg.edit(content="PLAGUE_DATA:" + json.dumps(plague_scheduled))
+    except:
+        pass
+
+async def trigger_plague_infection(member: discord.Member):
+    infected_role = member.guild.get_role(INFECTED_ROLE_ID)
+    if not infected_role or infected_role in member.roles:
+        return
+    await member.add_roles(infected_role, reason="Caught the monthly Dead Chat plague")
+    await member.guild.get_channel(DEAD_CHAT_CHANNEL_IDS[0]).send(
+        f"**PLAGUE OUTBREAK** {member.mention} has been **INFECTED** for 3 days!\n"
+        "The infection is now burned out for this month."
+    )
+    bot.loop.create_task(remove_infected_after_delay(member, infected_role))
+    plague_scheduled.clear()
+    await save_plague_storage()
+
+async def check_plague_today():
+    if not plague_scheduled or INFECTED_ROLE_ID == 0:
+        return False
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    for entry in plague_scheduled[:]:
+        if entry.get("date") == today:
+            plague_scheduled.remove(entry)
+            await save_plague_storage()
+            return True
+    return False
 
 def parse_schedule_datetime(when: str) -> datetime | None:
     try:
@@ -368,20 +429,25 @@ async def handle_dead_chat_message(message: discord.Message):
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
-    for old_cid, mid in list(dead_last_notice_message_ids.items()):
-        if mid:
-            ch = message.guild.get_channel(old_cid)
-            if ch:
-                try:
-                    m = await ch.fetch_message(mid)
-                    await m.delete()
-                except:
-                    pass
+        plague_active = await check_plague_today()
+        if plague_active:
+            await trigger_plague_infection(message.author)
+            for old_cid, mid in list(dead_last_notice_message_ids.items()):
+                if mid:
+                    ch = message.guild.get_channel(old_cid)
+                    if ch:
+                        try:
+                            m = await ch.fetch_message(mid)
+                            await m.delete()
+                        except:
+                            pass
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
-    notice = await message.channel.send(
-        f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
-        "-# There's a random chance to win prizes with this role."
-    )
+    notice_text = f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
+    if plague_active:
+        notice_text += "-# The graveyard was contagious today… one victim has been chosen."
+    else:
+        notice_text += "-# There's a random chance to win prizes with this role."
+    notice = await message.channel.send(notice_text)
     dead_last_notice_message_ids[message.channel.id] = notice.id
     await save_deadchat_state()
 
@@ -731,14 +797,15 @@ async def on_ready():
     await init_deadchat_storage()
     await init_deadchat_state_storage()
     await init_twitch_state_storage()
+    await init_plague_storage()
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
         await initialize_dead_chat()
         for prize_list, prize_type in [
             (movie_scheduled_prizes, "movie"),
-            (nitro_scheduled_prizes,  "nitro"),
-            (steam_scheduled_prizes,  "steam")
+            (nitro_scheduled_prizes, "nitro"),
+            (steam_scheduled_prizes, "steam")
         ]:
             for p in prize_list:
                 pid = p.get("id")
@@ -1176,6 +1243,54 @@ async def sticky(ctx, action: discord.Option(str, choices=["set", "clear"], requ
                 pass
         await save_stickies()
         await ctx.respond("Sticky cleared.", ephemeral=True)
+
+@bot.slash_command(name="plague_init", description="Create plague storage message (run once)")
+async def plague_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("PLAGUE_DATA:[]")
+    global plague_storage_message_id
+    plague_storage_message_id = msg.id
+    await ctx.respond(f"Plague storage created: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="plague_infect", description="Schedule a contagious Dead Chat day")
+async def plague_infect(
+    ctx,
+    month: discord.Option(str, "Month", required=False, choices=MONTH_CHOICES),
+    day: discord.Option(int, "Day of month", required=False),
+    hour: discord.Option(int, "Hour (0-23 UTC)", required=False, min_value=0, max_value=23),
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    if month is None and day is None and hour is None:
+        target_date = datetime.utcnow().strftime("%Y-%m-%d")
+    else:
+        if month is None or day is None or hour is None:
+            return await ctx.respond("Provide all three or leave all blank.", ephemeral=True)
+        month_num = MONTH_TO_NUM.get(month)
+        if not month_num:
+            return await ctx.respond("Invalid month.", ephemeral=True)
+        now = datetime.utcnow()
+        try:
+            target = datetime(now.year, month_num, day, hour, 0)
+        except ValueError:
+            return await ctx.respond("Invalid date.", ephemeral=True)
+        if target <= now:
+            try:
+                target = datetime(now.year + 1, month_num, day, hour, 0)
+            except ValueError:
+                return await ctx.respond("Invalid date.", ephemeral=True)
+        target_date = target.strftime("%Y-%m-%d")
+    plague_scheduled[:] = [e for e in plague_scheduled if e.get("date") != target_date]
+    plague_scheduled.append({"date": target_date})
+    await save_plague_storage()
+    if month is None:
+        await ctx.respond("Plague set for **today** — whoever steals Dead Chat gets infected!", ephemeral=True)
+    else:
+        await ctx.respond(f"Plague scheduled for **{target.strftime('%Y-%m-%d %H:00')} UTC**", ephemeral=True)
 
 
 ############### ON_READY & BOT START ###############
