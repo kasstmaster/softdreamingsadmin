@@ -427,20 +427,21 @@ async def handle_dead_chat_message(message: discord.Message):
         if member.id != message.author.id:
             await member.remove_roles(role, reason="Dead Chat stolen")
     await message.author.add_roles(role, reason="Dead Chat claimed")
-    dead_current_holder_id = message.author.id
-    dead_last_win_time[message.author.id] = now
-        plague_active = await check_plague_today()
-        if plague_active:
-            await trigger_plague_infection(message.author)
-        for old_cid, mid in list(dead_last_notice_message_ids.items()):
-            if mid:
-                ch = message.guild.get_channel(old_cid)
-                if ch:
-                    try:
-                        m = await ch.fetch_message(mid)
-                        await m.delete()
-                    except:
-                        pass
+        dead_current_holder_id = message.author.id
+        dead_last_win_time[message.author.id] = now
+            plague_active = await check_plague_today()
+            if plague_active:
+                await trigger_plague_infection(message.author)
+        
+            for old_cid, mid in list(dead_last_notice_message_ids.items()):
+                if mid:
+                    ch = message.guild.get_channel(old_cid)
+                    if ch:
+                        try:
+                            m = await ch.fetch_message(mid)
+                            await m.delete()
+                        except:
+                            pass
     minutes = DEAD_CHAT_IDLE_SECONDS // 60
     notice_text = f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
     if plague_active:
