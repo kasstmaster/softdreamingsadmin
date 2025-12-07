@@ -15,7 +15,7 @@
 # • Do NOT add comments inside the code. No inline labels.
 # ============================================================
 # BOT NAME: ADMIN BOT
-# PURPOSE
+# PURPOSE 
 # • System backbone: shared storage messages, state load/save, one-time init commands
 # • Entry/exit flow: welcome text, delayed member role, bot join role, boost + birthday messages
 # • Moderation logging: bans, kicks, leaves routed to staff log thread/bot log channel
@@ -52,7 +52,7 @@
 # MEMBER
 # • Permissions: Standard chat + VC + app commands
 # • Commands:
-#   /birthdays /set /color /pick /pool /replace /search
+#   /birthdays /set /color /pick /pool /replace /search 
 # ============================================================
 
 ############### IMPORTS ###############
@@ -61,9 +61,12 @@ import os
 import asyncio
 import aiohttp
 import json
+import traceback
+import sys
 from datetime import datetime, timedelta
 from discord import TextChannel
 from discord.ui import Select
+
 
 ############### CONSTANTS & CONFIG ###############
 intents = discord.Intents.default()
@@ -91,7 +94,7 @@ TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID"))
 TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 
 MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
-BOT_LOG_CHANNEL_ID = int(os.getenv("BOT_LOG_CHANNEL_ID", "0"))
+BOT_LOG_THREAD_ID = int(os.getenv("BOT_LOG_THREAD_ID", "0"))
 
 DEAD_CHAT_ROLE_ID = int(os.getenv("DEAD_CHAT_ROLE_ID", "0"))
 DEAD_CHAT_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("DEAD_CHAT_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
@@ -101,13 +104,12 @@ IGNORE_MEMBER_IDS = {int(x.strip()) for x in os.getenv("IGNORE_MEMBER_IDS", "").
 MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
 
-PRIZE_PLAGUE_TRIGGER_HOUR_UTC = 12
+PRIZE_PLAGUE_TRIGGER_HOUR_UTC = int(os.getenv("PRIZE_PLAGUE_TRIGGER_HOUR_UTC", "12"))
 INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
-INFECTED_MESSAGE_TEMPLATE = "🦠 **INFECTION OUTBREAK!**"
-INFECTED_ANNOUNCE_CHANNEL_ID = int(os.getenv("INFECTED_ANNOUNCE_CHANNEL_ID", "0"))
 
 STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
 
+PRIZE_DROP_CHANNEL_ID = int(os.getenv("PRIZE_DROP_CHANNEL_ID", "0"))
 PRIZE_EMOJI = os.getenv("PRIZE_EMOJI", "")
 _raw_prize_defs = os.getenv("PRIZE_DEFS", "")
 if _raw_prize_defs:
@@ -143,10 +145,21 @@ member_join_storage_message_id: int | None = None
 plague_scheduled: list[dict] = []
 plague_storage_message_id: int | None = None
 infected_members: dict[int, str] = {}
-infected_announce_messages: dict[int, int] = {}
 
 
 ############### HELPER FUNCTIONS ###############
+async def debug_scan_storage_channel(limit: int = 20) -> str:
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return "Storage channel not found."
+    lines = []
+    async for msg in ch.history(limit=limit, oldest_first=True):
+        prefix = msg.content[:40].replace("\n", "\\n")
+        lines.append(f"id={msg.id} author={msg.author.id} bot={msg.author.bot} content={prefix}")
+    if not lines:
+        return "No messages visible in storage channel."
+    return "\n".join(lines)
+
 async def log_to_thread(content: str):
     channel = bot.get_channel(MOD_LOG_THREAD_ID)
     if not channel:
@@ -157,9 +170,9 @@ async def log_to_thread(content: str):
         pass
 
 async def log_to_bot_channel(content: str):
-    if BOT_LOG_CHANNEL_ID == 0:
+    if BOT_LOG_THREAD_ID == 0:
         return await log_to_thread(f"[BOT] {content}")
-    channel = bot.get_channel(BOT_LOG_CHANNEL_ID)
+    channel = bot.get_channel(BOT_LOG_THREAD_ID)
     if not channel:
         return
     try:
@@ -167,23 +180,264 @@ async def log_to_bot_channel(content: str):
     except Exception:
         pass
 
+async def log_exception(tag: str, exc: Exception):
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    text = f"{tag}: {exc}\n{tb}"
+    if len(text) > 1900:
+        text = text[:1900]
+    await log_to_bot_channel(text)
+
+async def check_runtime_systems():
+    problems = []
+    results = {
+        "CHANNELS": True,
+        "ROLES": True,
+        "AUTO_DELETE": True,
+        "DEAD_CHAT_CHANNELS": True,
+        "TWITCH_CONFIG": True,
+    }
+    main_guild = bot.get_guild(DEBUG_GUILD_ID)
+    if main_guild is None and bot.guilds:
+        main_guild = bot.guilds[0]
+    if main_guild is None:
+        problems.append("Runtime: no guild found for checks")
+        results["CHANNELS"] = False
+        results["ROLES"] = False
+        return problems, results
+    me = main_guild.me
+    if me is None:
+        problems.append("Runtime: unable to resolve bot member in main guild")
+        results["CHANNELS"] = False
+        results["ROLES"] = False
+        return problems, results
+    def fail(key: str, message: str):
+        problems.append(message)
+        if key in results:
+            results[key] = False
+    def check_channel_permissions(channel_id: int, label: str, key: str, need_manage: bool = False):
+        if channel_id == 0:
+            return
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            fail(key, f"{label}: channel {channel_id} not found")
+            return
+        perms = channel.permissions_for(me)
+        if not perms.view_channel or not perms.send_messages:
+            fail(key, f"{label}: insufficient permissions to view/send")
+        if not perms.read_message_history:
+            fail(key, f"{label}: missing Read Message History")
+        if need_manage and not perms.manage_messages:
+            fail(key, f"{label}: missing Manage Messages")
+    check_channel_permissions(STORAGE_CHANNEL_ID, "STORAGE_CHANNEL", "CHANNELS", need_manage=True)
+    check_channel_permissions(WELCOME_CHANNEL_ID, "WELCOME_CHANNEL", "CHANNELS")
+    check_channel_permissions(BOT_LOG_THREAD_ID, "BOT_LOG_CHANNEL", "CHANNELS")
+    check_channel_permissions(TWITCH_ANNOUNCE_CHANNEL_ID, "TWITCH_ANNOUNCE_CHANNEL", "CHANNELS")
+    for cid in DEAD_CHAT_CHANNEL_IDS:
+        check_channel_permissions(cid, f"DEAD_CHAT_CHANNEL_{cid}", "DEAD_CHAT_CHANNELS", need_manage=True)
+    for cid in AUTO_DELETE_CHANNEL_IDS:
+        check_channel_permissions(cid, f"AUTO_DELETE_CHANNEL_{cid}", "AUTO_DELETE", need_manage=True)
+    roles_to_check = [
+        (BIRTHDAY_ROLE_ID, "BIRTHDAY_ROLE_ID"),
+        (MEMBER_JOIN_ROLE_ID, "MEMBER_JOIN_ROLE_ID"),
+        (BOT_JOIN_ROLE_ID, "BOT_JOIN_ROLE_ID"),
+        (DEAD_CHAT_ROLE_ID, "DEAD_CHAT_ROLE_ID"),
+        (INFECTED_ROLE_ID, "INFECTED_ROLE_ID"),
+    ]
+    for role_id, label in roles_to_check:
+        if role_id == 0:
+            continue
+        role = main_guild.get_role(role_id)
+        if role is None:
+            fail("ROLES", f"{label}: role {role_id} not found in main guild")
+    if TWITCH_CHANNELS and (not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET or TWITCH_ANNOUNCE_CHANNEL_ID == 0):
+        fail("TWITCH_CONFIG", "TWITCH_CONFIG: missing client id/secret or announce channel")
+    return problems, results
+
+async def run_all_inits_with_logging():
+    problems = []
+    storage = {
+        "STICKY": True,
+        "PRIZE": True,
+        "DEADCHAT": True,
+        "DEADCHAT_STATE": True,
+        "TWITCH_STATE": True,
+        "PLAGUE": True,
+        "MEMBERJOIN": True,
+    }
+    try:
+        await init_sticky_storage()
+        if sticky_storage_message_id is None:
+            storage["STICKY"] = False
+            problems.append("STICKY_DATA storage missing; run /sticky_init to create it.")
+    except Exception as e:
+        storage["STICKY"] = False
+        problems.append("init_sticky_storage failed; sticky messages could not be loaded.")
+        await log_exception("init_sticky_storage", e)
+    try:
+        await init_prize_storage()
+        if movie_prize_storage_message_id is None or nitro_prize_storage_message_id is None or steam_prize_storage_message_id is None:
+            storage["PRIZE"] = False
+            problems.append("One or more PRIZE_* storage messages are missing; run /prize_init to create them.")
+    except Exception as e:
+        storage["PRIZE"] = False
+        problems.append("init_prize_storage failed; prize schedules could not be loaded.")
+        await log_exception("init_prize_storage", e)
+    try:
+        await init_deadchat_storage()
+        if deadchat_storage_message_id is None:
+            storage["DEADCHAT"] = False
+            problems.append("DEADCHAT_DATA storage missing; run /deadchat_init to create it.")
+    except Exception as e:
+        storage["DEADCHAT"] = False
+        problems.append("init_deadchat_storage failed; Dead Chat timestamps could not be loaded.")
+        await log_exception("init_deadchat_storage", e)
+    try:
+        await init_deadchat_state_storage()
+        if deadchat_state_storage_message_id is None:
+            storage["DEADCHAT_STATE"] = False
+            problems.append("DEADCHAT_STATE storage missing; run /deadchat_state_init to create it.")
+    except Exception as e:
+        storage["DEADCHAT_STATE"] = False
+        problems.append("init_deadchat_state_storage failed; Dead Chat state could not be loaded.")
+        await log_exception("init_deadchat_state_storage", e)
+    try:
+        await init_twitch_state_storage()
+        if twitch_state_storage_message_id is None:
+            storage["TWITCH_STATE"] = False
+            problems.append("TWITCH_STATE storage missing; run /twitch_state_init to create it.")
+    except Exception as e:
+        storage["TWITCH_STATE"] = False
+        problems.append("init_twitch_state_storage failed; Twitch live state could not be loaded.")
+        await log_exception("init_twitch_state_storage", e)
+    try:
+        await init_plague_storage()
+        if plague_storage_message_id is None:
+            storage["PLAGUE"] = False
+            problems.append("PLAGUE_DATA storage missing; run /plague_init to create it.")
+    except Exception as e:
+        storage["PLAGUE"] = False
+        problems.append("init_plague_storage failed; plague schedule and infected list could not be loaded.")
+        await log_exception("init_plague_storage", e)
+    try:
+        await init_member_join_storage()
+        if member_join_storage_message_id is None:
+            storage["MEMBERJOIN"] = False
+            problems.append("MEMBERJOIN_DATA storage missing; run /memberjoin_init to create it.")
+    except Exception as e:
+        storage["MEMBERJOIN"] = False
+        problems.append("init_member_join_storage failed; pending member joins could not be loaded.")
+        await log_exception("init_member_join_storage", e)
+    try:
+        runtime_problems, runtime_results = await check_runtime_systems()
+        problems.extend(runtime_problems)
+    except Exception as e:
+        runtime_results = {
+            "CHANNELS": False,
+            "ROLES": False,
+            "AUTO_DELETE": False,
+            "DEAD_CHAT_CHANNELS": False,
+            "TWITCH_CONFIG": False,
+        }
+        problems.append("Runtime system checks failed; see logs for details.")
+        await log_exception("check_runtime_systems", e)
+    lines = []
+    lines.append("Startup check report:")
+    lines.append("")
+    lines.append("[STORAGE]")
+    if storage["STICKY"]:
+        lines.append("✅ Sticky storage")
+    else:
+        lines.append("⚠️ **Sticky storage** — STICKY_DATA storage message is missing or unreadable, so sticky messages cannot be loaded or saved.")
+    if storage["DEADCHAT"]:
+        lines.append("✅ Dead Chat storage")
+    else:
+        lines.append("⚠️ **Dead Chat storage** — DEADCHAT_DATA storage message is missing or unreadable, so Dead Chat idle timestamps cannot be persisted.")
+    if storage["DEADCHAT_STATE"]:
+        lines.append("✅ Dead Chat state")
+    else:
+        lines.append("⚠️ **Dead Chat state** — DEADCHAT_STATE storage message is missing or unreadable, so current holder and state cannot be persisted.")
+    if storage["PLAGUE"]:
+        lines.append("✅ Plague storage")
+    else:
+        lines.append("⚠️ **Plague storage** — PLAGUE_DATA storage message is missing or unreadable, so plague schedule and infected members cannot be persisted.")
+    if storage["PRIZE"]:
+        lines.append("✅ Prize storage (movie/nitro/steam)")
+    else:
+        lines.append("⚠️ **Prize storage** — One or more PRIZE_* storage messages are missing or unreadable, so scheduled prizes cannot be persisted.")
+    if storage["MEMBERJOIN"]:
+        lines.append("✅ Member-join storage")
+    else:
+        lines.append("⚠️ **Member-join storage** — MEMBERJOIN_DATA storage message is missing or unreadable, so delayed member roles cannot be persisted.")
+    if storage["TWITCH_STATE"]:
+        lines.append("✅ Twitch state storage")
+    else:
+        lines.append("⚠️ **Twitch state storage** — TWITCH_STATE storage message is missing or unreadable, so Twitch live/offline state cannot be persisted.")
+    lines.append("")
+    lines.append("[RUNTIME CONFIG]")
+    if runtime_results.get("CHANNELS", False):
+        lines.append("✅ Channels and basic permissions")
+    else:
+        lines.append("⚠️ **Channels and basic permissions** — One or more required channels are missing or the bot lacks view, send, history, or manage permissions for them.")
+    if runtime_results.get("ROLES", False):
+        lines.append("✅ Required roles present")
+    else:
+        lines.append("⚠️ **Required roles present** — One or more required roles are missing from the main guild, so some automations cannot run.")
+    if runtime_results.get("DEAD_CHAT_CHANNELS", False):
+        lines.append("✅ Dead Chat channels ready")
+    else:
+        lines.append("⚠️ **Dead Chat channels ready** — One or more Dead Chat channels are missing or have insufficient permissions for idle tracking and role steals.")
+    if runtime_results.get("AUTO_DELETE", False):
+        lines.append("✅ Auto-delete channels ready")
+    else:
+        lines.append("⚠️ **Auto-delete channels ready** — One or more auto-delete channels are missing or lack message management permissions.")
+    if runtime_results.get("TWITCH_CONFIG", False):
+        lines.append("✅ Twitch config and announce channel")
+    else:
+        lines.append("⚠️ **Twitch config and announce channel** — Twitch client ID/secret or announce channel is misconfigured, so live notifications cannot be sent.")
+    if problems:
+        lines.append("")
+        lines.append("[DETAILS]")
+        for p in problems:
+            lines.append(f"⚠️ **Detail** — {p}")
+    else:
+        lines.append("")
+        lines.append("All systems passed basic storage and runtime checks.")
+    text = "\n".join(lines)
+    if len(text) > 1900:
+        text = text[:1900]
+    await log_to_bot_channel(text)
+    if problems:
+        await log_to_bot_channel(f"[STARTUP] {len(problems)} problems detected, see report above.")
+    else:
+        await log_to_bot_channel("[STARTUP] All systems passed storage and runtime checks.")
+
+async def find_storage_message(prefix: str) -> discord.Message | None:
+    if STORAGE_CHANNEL_ID == 0:
+        await log_to_bot_channel(f"find_storage_message: STORAGE_CHANNEL_ID is 0 for {prefix}")
+        return None
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        await log_to_bot_channel(f"find_storage_message: storage channel invalid for {prefix}")
+        return None
+    try:
+        async for msg in ch.history(limit=200, oldest_first=False):
+            if msg.content.startswith(prefix):
+                return msg
+    except Exception as e:
+        await log_to_bot_channel(f"find_storage_message error for {prefix}: {e}")
+        return None
+    await log_to_bot_channel(f"find_storage_message: no storage message found for {prefix}")
+    return None
+
 async def init_sticky_storage():
     global sticky_storage_message_id
     if STORAGE_CHANNEL_ID == 0:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
+    msg = await find_storage_message("STICKY_DATA:")
+    if not msg:
         return
-    storage_msg = None
-    async for msg in ch.history(limit=50, oldest_first=True):
-        if msg.author == bot.user and msg.content.startswith("STICKY_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("Sticky storage message not found → Run /sticky_init first")
-        return
-    sticky_storage_message_id = storage_msg.id
-    data_str = storage_msg.content[len("STICKY_DATA:"):]
+    sticky_storage_message_id = msg.id
+    data_str = msg.content[len("STICKY_DATA:"):]
     if not data_str.strip():
         return
     try:
@@ -199,6 +453,7 @@ async def init_sticky_storage():
                     sticky_messages[cid] = info["message_id"]
             except:
                 continue
+        await log_to_bot_channel(f"[STICKY] Loaded {len(sticky_texts)} sticky entries from storage.")
     except Exception as e:
         await log_to_bot_channel(f"Failed to load sticky data: {e}")
 
@@ -217,33 +472,24 @@ async def save_stickies():
                 entry["message_id"] = sticky_messages[cid]
             data[str(cid)] = entry
         await msg.edit(content="STICKY_DATA:" + json.dumps(data))
-    except:
-        pass
+    except Exception as e:
+        await log_exception("save_stickies", e)
 
 async def init_member_join_storage():
     global member_join_storage_message_id, pending_member_joins
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("MEMBERJOIN_DATA:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=50, oldest_first=True):
-        if msg.author == bot.user and msg.content.startswith("MEMBERJOIN_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("MEMBERJOIN_DATA message not found → Run /memberjoin_init first")
-        return
-    member_join_storage_message_id = storage_msg.id
-    raw = storage_msg.content[len("MEMBERJOIN_DATA:"):]
+    member_join_storage_message_id = msg.id
+    raw = msg.content[len("MEMBERJOIN_DATA:"):]
     try:
         data = json.loads(raw or "[]")
         if isinstance(data, list):
             pending_member_joins[:] = data
         else:
             pending_member_joins[:] = []
-    except:
+        await log_to_bot_channel(f"[MEMBERJOIN] Loaded {len(pending_member_joins)} pending entries from storage.")
+    except Exception:
         pending_member_joins[:] = []
 
 async def save_member_join_storage():
@@ -255,27 +501,17 @@ async def save_member_join_storage():
     try:
         msg = await ch.fetch_message(member_join_storage_message_id)
         await msg.edit(content="MEMBERJOIN_DATA:" + json.dumps(pending_member_joins))
-    except:
-        pass
+    except Exception as e:
+        await log_exception("save_member_join_storage", e)
 
 async def init_plague_storage():
     global plague_storage_message_id, plague_scheduled, infected_members
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("PLAGUE_DATA:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=50, oldest_first=True):
-        if msg.author == bot.user and msg.content.startswith("PLAGUE_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("Plague storage missing → Run /plague_init")
-        return
-    plague_storage_message_id = storage_msg.id
+    plague_storage_message_id = msg.id
     try:
-        raw = storage_msg.content[len("PLAGUE_DATA:"):]
+        raw = msg.content[len("PLAGUE_DATA:"):]
         data = json.loads(raw or "[]")
         plague_scheduled.clear()
         infected_members.clear()
@@ -289,14 +525,19 @@ async def init_plague_storage():
                     infected_members[int(mid_str)] = ts
                 except:
                     pass
-    except:
-        pass
+        await log_to_bot_channel(
+            f"[PLAGUE] Loaded {len(plague_scheduled)} scheduled day(s), {len(infected_members)} infected member(s) from storage."
+        )
+    except Exception as e:
+        await log_to_bot_channel(f"init_plague_storage failed: {e}")
 
 async def save_plague_storage():
     if STORAGE_CHANNEL_ID == 0 or plague_storage_message_id is None:
+        await log_to_bot_channel("save_plague_storage: storage id missing")
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not ch or not isinstance(ch, TextChannel):
+        await log_to_bot_channel("save_plague_storage: storage channel invalid")
         return
     payload = {
         "scheduled": plague_scheduled,
@@ -305,17 +546,14 @@ async def save_plague_storage():
     try:
         msg = await ch.fetch_message(plague_storage_message_id)
         await msg.edit(content="PLAGUE_DATA:" + json.dumps(payload))
-    except:
-        pass
+    except Exception as e:
+        await log_to_bot_channel(f"save_plague_storage failed: {e}")
 
 async def trigger_plague_infection(member: discord.Member):
     infected_role = member.guild.get_role(INFECTED_ROLE_ID)
     if not infected_role or infected_role in member.roles:
         return
     await member.add_roles(infected_role, reason="Caught the monthly Dead Chat plague")
-    await member.guild.get_channel(DEAD_CHAT_CHANNEL_IDS[0]).send(
-        f"**ALERT** {member.mention} has been **INFECTED** for 3 days! 🤢"
-    )
     expires_at = (datetime.utcnow() + timedelta(days=3)).isoformat() + "Z"
     infected_members[member.id] = expires_at
     plague_scheduled.clear()
@@ -344,6 +582,12 @@ async def check_plague_active():
             return True
     return False
 
+def parse_schedule_datetime(when: str) -> datetime | None:
+    try:
+        return datetime.strptime(when, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
 async def init_prize_storage():
     global movie_prize_storage_message_id, nitro_prize_storage_message_id, steam_prize_storage_message_id
     global movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes
@@ -351,20 +595,11 @@ async def init_prize_storage():
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not isinstance(ch, discord.TextChannel):
+        await log_to_bot_channel("init_prize_storage: invalid storage channel")
         return
-    movie_msg = nitro_msg = steam_msg = None
-    async for msg in ch.history(limit=100, oldest_first=True):
-        if msg.author != bot.user:
-            continue
-        content = msg.content
-        if content.startswith("PRIZE_MOVIE_DATA:"):
-            movie_msg = msg
-        elif content.startswith("PRIZE_NITRO_DATA:"):
-            nitro_msg = msg
-        elif content.startswith("PRIZE_STEAM_DATA:"):
-            steam_msg = msg
-        if movie_msg and nitro_msg and steam_msg:
-            break
+    movie_msg = await find_storage_message("PRIZE_MOVIE_DATA:")
+    nitro_msg = await find_storage_message("PRIZE_NITRO_DATA:")
+    steam_msg = await find_storage_message("PRIZE_STEAM_DATA:")
     if not (movie_msg and nitro_msg and steam_msg):
         await log_to_bot_channel("Prize storage messages missing → Run /prize_init first")
         return
@@ -379,18 +614,9 @@ async def init_prize_storage():
     movie_scheduled_prizes = safe_load(movie_msg.content, "PRIZE_MOVIE_DATA:")
     nitro_scheduled_prizes = safe_load(nitro_msg.content, "PRIZE_NITRO_DATA:")
     steam_scheduled_prizes = safe_load(steam_msg.content, "PRIZE_STEAM_DATA:")
-    changed = False
-    for prize_list in (movie_scheduled_prizes, nitro_scheduled_prizes, steam_scheduled_prizes):
-        for p in prize_list:
-            if "date" not in p:
-                send_at = p.get("send_at")
-                if isinstance(send_at, str) and send_at.strip():
-                    parts = send_at.split()
-                    if parts:
-                        p["date"] = parts[0]
-                        changed = True
-    if changed:
-        await save_prize_storage()
+    await log_to_bot_channel(
+        f"[PRIZE] Loaded {len(movie_scheduled_prizes)} movie, {len(nitro_scheduled_prizes)} nitro, {len(steam_scheduled_prizes)} steam scheduled prizes from storage."
+    )
 
 async def save_prize_storage():
     if STORAGE_CHANNEL_ID == 0:
@@ -407,8 +633,8 @@ async def save_prize_storage():
             try:
                 msg = await ch.fetch_message(msg_id)
                 await msg.edit(content=prefix + json.dumps(data))
-            except:
-                pass
+            except Exception as e:
+                await log_exception(f"save_prize_storage_{prefix}", e)
 
 def get_prize_list_and_entries(prize_type: str):
     if prize_type == "movie":
@@ -418,6 +644,45 @@ def get_prize_list_and_entries(prize_type: str):
     if prize_type == "steam":
         return steam_scheduled_prizes
     return None
+
+async def run_scheduled_prize(prize_type: str, prize_id: int):
+    if prize_type == "movie":
+        entries = movie_scheduled_prizes
+        view_cls = MoviePrizeView
+    elif prize_type == "nitro":
+        entries = nitro_scheduled_prizes
+        view_cls = NitroPrizeView
+    elif prize_type == "steam":
+        entries = steam_scheduled_prizes
+        view_cls = SteamPrizeView
+    else:
+        return
+    record = None
+    for p in entries:
+        if p.get("id") == prize_id:
+            record = p
+            break
+    if not record:
+        return
+    send_at = parse_schedule_datetime(record.get("send_at", ""))
+    if not send_at:
+        return
+    now = datetime.utcnow()
+    delay = (send_at - now).total_seconds()
+    if delay > 0:
+        await asyncio.sleep(delay)
+    channel_id = PRIZE_DROP_CHANNEL_ID or record.get("channel_id")
+    content = record.get("content")
+    if not channel_id or not content:
+        return
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        return
+    view = view_cls()
+    await channel.send(content, view=view)
+    entries[:] = [p for p in entries if p.get("id") != prize_id]
+    await save_prize_storage()
+    await log_to_bot_channel(f"[PRIZE] Sent scheduled {prize_type} prize ID {prize_id} to channel {channel_id}.")
 
 async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, date_str: str):
     if prize_type == "movie":
@@ -430,10 +695,11 @@ async def add_scheduled_prize(prize_type: str, channel_id: int, content: str, da
         return
     existing_ids = [p.get("id", 0) for p in entries]
     new_id = max(existing_ids) + 1 if existing_ids else 1
+    target_channel_id = PRIZE_DROP_CHANNEL_ID or channel_id
     entries.append(
         {
             "id": new_id,
-            "channel_id": channel_id,
+            "channel_id": target_channel_id,
             "content": content,
             "date": date_str,
         }
@@ -483,15 +749,6 @@ async def handle_dead_chat_message(message: discord.Message):
     for member in list(role.members):
         if member.id != message.author.id:
             await member.remove_roles(role, reason="Dead Chat stolen")
-            msg_id = infected_announce_messages.pop(member.id, None)
-            if msg_id and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
-                ch = message.guild.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
-                if isinstance(ch, discord.TextChannel):
-                    try:
-                        m = await ch.fetch_message(msg_id)
-                        await m.delete()
-                    except:
-                        pass
     await message.author.add_roles(role, reason="Dead Chat claimed")
     dead_current_holder_id = message.author.id
     dead_last_win_time[message.author.id] = now
@@ -513,41 +770,20 @@ async def handle_dead_chat_message(message: discord.Message):
             (nitro_scheduled_prizes, NitroPrizeView),
             (steam_scheduled_prizes, SteamPrizeView)
         ]:
-            matching = []
-            for p in prize_list:
-                d = p.get("date")
-                if not d:
-                    send_at = p.get("send_at")
-                    if isinstance(send_at, str) and send_at.strip():
-                        parts = send_at.split()
-                        if parts:
-                            d = parts[0]
-                if d == today_str:
-                    matching.append(p)
+            matching = [p for p in prize_list if p.get("date") == today_str]
             if matching:
                 triggered_prize = True
             for p in matching:
-                channel_id = p.get("channel_id") or message.channel.id
+                channel_id = PRIZE_DROP_CHANNEL_ID or p.get("channel_id") or message.channel.id
                 channel = message.guild.get_channel(channel_id)
                 if not channel:
                     channel = message.channel
                 view = view_cls()
                 await channel.send(p.get("content", ""), view=view)
-            if matching:
-                new_list = []
-                for p in prize_list:
-                    d = p.get("date")
-                    if not d:
-                        send_at = p.get("send_at")
-                        if isinstance(send_at, str) and send_at.strip():
-                            parts = send_at.split()
-                            if parts:
-                                d = parts[0]
-                    if d != today_str:
-                        new_list.append(p)
-                prize_list[:] = new_list
+            prize_list[:] = [p for p in prize_list if p.get("date") != today_str]
         if triggered_prize:
             await save_prize_storage()
+            await log_to_bot_channel(f"[PRIZE] Daily prize drop(s) sent for {today_str}.")
 
     for old_cid, mid in list(dead_last_notice_message_ids.items()):
         if mid:
@@ -558,50 +794,52 @@ async def handle_dead_chat_message(message: discord.Message):
                     await m.delete()
                 except:
                     pass
-    minutes = DEAD_CHAT_IDLE_SECONDS // 60
-    notice_text = f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
     if triggered_plague:
-        notice_text += "-# The graveyard was contagious today… one victim has been chosen."
+        plague_text = (
+            f"**PLAGUE OUTBREAK**\n"
+            f"-# The sickness has chosen its host.\n"
+            f"-# {message.author.mention} bears the infection, binding the plague and ending today’s contagion.\n"
+            f"-# Those who claim Dead Chat after this moment will not be touched by the disease.\n"
+            f"-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
+        )
+        notice = await message.channel.send(plague_text)
+        await log_to_bot_channel(f"[PLAGUE] {message.author.id} infected on {today_str} in channel {message.channel.id}.")
     else:
-        notice_text += "-# There's a random chance to win prizes with this role."
-    notice = await message.channel.send(notice_text)
-    dead_last_notice_message_ids[message.channel.id] = notice.id
-    await save_deadchat_state()
+        minutes = DEAD_CHAT_IDLE_SECONDS // 60
+        notice_text = (
+            f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
+            f"-# There's a random chance to win prizes with this role.\n"
+            f"-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
+        )
+        notice = await message.channel.send(notice_text)
 
 async def init_deadchat_storage():
     global deadchat_storage_message_id, deadchat_last_times
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("DEADCHAT_DATA:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=50, oldest_first=True):
-        if msg.author == bot.user and msg.content.startswith("DEADCHAT_DATA:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("init_deadchat_storage: DEADCHAT_DATA message not found. Run /deadchat_init first.")
-        return
-    deadchat_storage_message_id = storage_msg.id
-    raw = storage_msg.content[len("DEADCHAT_DATA:"):]
-    try:
-        data = json.loads(raw or "{}")
+    deadchat_storage_message_id = msg.id
+    raw = msg.content[len("DEADCHAT_DATA:"):]
+    if not raw.strip():
         deadchat_last_times.clear()
-        for cid_str, ts in data.items():
-            try:
-                deadchat_last_times[int(cid_str)] = ts
-            except:
-                pass
-    except:
-        pass
+        return
+    data = json.loads(raw)
+    deadchat_last_times.clear()
+    for cid_str, ts in data.items():
+        try:
+            deadchat_last_times[int(cid_str)] = ts
+        except:
+            pass
+    await log_to_bot_channel(f"[DEADCHAT] Loaded timestamps for {len(deadchat_last_times)} channel(s).")
 
 async def save_deadchat_storage():
     global deadchat_storage_message_id
     if STORAGE_CHANNEL_ID == 0 or deadchat_storage_message_id is None:
+        await log_to_bot_channel("save_deadchat_storage: storage id missing")
         return
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not ch or not isinstance(ch, TextChannel):
+        await log_to_bot_channel("save_deadchat_storage: storage channel invalid")
         return
     try:
         msg = await ch.fetch_message(deadchat_storage_message_id)
@@ -616,21 +854,11 @@ async def save_deadchat_storage():
 
 async def init_deadchat_state_storage():
     global deadchat_state_storage_message_id
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("DEADCHAT_STATE:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=50, oldest_first=True):
-        if msg.author == bot.user and msg.content.startswith("DEADCHAT_STATE:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("DEADCHAT_STATE message missing → Run /deadchat_state_init")
-        return
-    deadchat_state_storage_message_id = storage_msg.id
-    await load_deadchat_state()  # load the data immediately
+    deadchat_state_storage_message_id = msg.id
+    await load_deadchat_state()
 
 async def load_deadchat_state():
     global dead_current_holder_id, dead_last_win_time, dead_last_notice_message_ids
@@ -673,25 +901,14 @@ async def save_deadchat_state():
     except Exception as e:
         await log_to_bot_channel(f"Deadchat state save failed: {e}")
 
-
-# Twitch state -------------------------------------------------
 async def init_twitch_state_storage():
     global twitch_state_storage_message_id
-    if STORAGE_CHANNEL_ID == 0:
+    msg = await find_storage_message("TWITCH_STATE:")
+    if not msg:
         return
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        return
-    storage_msg = None
-    async for msg in ch.history(limit=50, oldest_first=True):
-        if msg.author == bot.user and msg.content.startswith("TWITCH_STATE:"):
-            storage_msg = msg
-            break
-    if not storage_msg:
-        await log_to_bot_channel("TWITCH_STATE message missing → Run /twitch_state_init")
-        return
-    twitch_state_storage_message_id = storage_msg.id
+    twitch_state_storage_message_id = msg.id
     await load_twitch_state()
+    await log_to_bot_channel(f"[TWITCH] State storage initialized with id {twitch_state_storage_message_id}.")
 
 async def load_twitch_state():
     global twitch_live_state
@@ -702,7 +919,9 @@ async def load_twitch_state():
         msg = await ch.fetch_message(twitch_state_storage_message_id)
         loaded = json.loads(msg.content[len("TWITCH_STATE:"):])
         twitch_live_state = {k.lower(): bool(v) for k, v in loaded.items()}
-    except:
+        await log_to_bot_channel(f"[TWITCH] Loaded live state for {len(twitch_live_state)} channel(s).")
+    except Exception as e:
+        await log_exception("load_twitch_state", e)
         twitch_live_state = {name: False for name in TWITCH_CHANNELS}
 
 async def save_twitch_state():
@@ -714,8 +933,8 @@ async def save_twitch_state():
     try:
         msg = await ch.fetch_message(twitch_state_storage_message_id)
         await msg.edit(content="TWITCH_STATE:" + json.dumps(twitch_live_state))
-    except:
-        pass
+    except Exception as e:
+        await log_exception("save_twitch_state", e)
 
 async def get_twitch_token():
     global twitch_access_token
@@ -768,8 +987,8 @@ class BasePrizeView(discord.ui.View):
             return await interaction.response.send_message("Server only.", ephemeral=True)
         try:
             await interaction.message.delete()
-        except:
-            pass
+        except Exception as e:
+            await log_exception("BasePrizeView_claim_button_delete", e)
         dead_role = guild.get_role(DEAD_CHAT_ROLE_ID)
         role_mention = dead_role.mention if dead_role else "the Dead Chat role"
         ch = guild.get_channel(WELCOME_CHANNEL_ID)
@@ -862,92 +1081,109 @@ async def twitch_watcher():
     ch = bot.get_channel(TWITCH_ANNOUNCE_CHANNEL_ID)
     if not ch:
         return
+    await log_to_bot_channel("[TWITCH] watcher started.")
     while not bot.is_closed():
-        streams = await fetch_twitch_streams()
-        for name in TWITCH_CHANNELS:
-            is_live = name in streams
-            was_live = twitch_live_state.get(name, False)
-            if is_live and not was_live:
-                await ch.send(
-                    f"{TWITCH_EMOJI} {name} is live ┃ https://twitch.tv/{name}\n-# @everyone"
-                )
-                twitch_live_state[name] = True
-                await save_twitch_state()
-            elif not is_live and was_live:
-                twitch_live_state[name] = False
-                await save_twitch_state()
+        try:
+            streams = await fetch_twitch_streams()
+            for name in TWITCH_CHANNELS:
+                is_live = name in streams
+                was_live = twitch_live_state.get(name, False)
+                if is_live and not was_live:
+                    await ch.send(
+                        f"{TWITCH_EMOJI} {name} is live ┃ https://twitch.tv/{name}\n-# @everyone"
+                    )
+                    twitch_live_state[name] = True
+                    await save_twitch_state()
+                    await log_to_bot_channel(f"[TWITCH] {name} went LIVE.")
+                elif not is_live and was_live:
+                    twitch_live_state[name] = False
+                    await save_twitch_state()
+                    await log_to_bot_channel(f"[TWITCH] {name} went OFFLINE.")
+        except Exception as e:
+            await log_exception("twitch_watcher", e)
         await asyncio.sleep(60)
 
 async def infected_watcher():
     await bot.wait_until_ready()
     if INFECTED_ROLE_ID == 0:
         return
+    await log_to_bot_channel("[PLAGUE] infected_watcher started.")
     while not bot.is_closed():
-        now = datetime.utcnow()
-        expired_ids = []
-        for mid, ts in list(infected_members.items()):
-            try:
-                expires = datetime.fromisoformat(ts.replace("Z", ""))
-            except:
-                continue
-            if now >= expires:
-                expired_ids.append(mid)
-        if expired_ids:
-            for guild in bot.guilds:
-                role = guild.get_role(INFECTED_ROLE_ID)
-                if not role:
+        try:
+            now = datetime.utcnow()
+            expired_ids = []
+            for mid, ts in list(infected_members.items()):
+                try:
+                    expires = datetime.fromisoformat(ts.replace("Z", ""))
+                except:
                     continue
+                if now >= expires:
+                    expired_ids.append(mid)
+            if expired_ids:
+                for guild in bot.guilds:
+                    role = guild.get_role(INFECTED_ROLE_ID)
+                    if not role:
+                        continue
+                    for mid in expired_ids:
+                        member = guild.get_member(mid)
+                        if member and role in member.roles:
+                            try:
+                                await member.remove_roles(role, reason="Plague expired")
+                            except:
+                                pass
                 for mid in expired_ids:
-                    member = guild.get_member(mid)
-                    if member and role in member.roles:
-                        try:
-                            await member.remove_roles(role, reason="Plague expired")
-                        except:
-                            pass
-            for mid in expired_ids:
-                infected_members.pop(mid, None)
-            await save_plague_storage()
+                    infected_members.pop(mid, None)
+                await save_plague_storage()
+                await log_to_bot_channel(f"[PLAGUE] Cleared infected role for: {', '.join(str(i) for i in expired_ids)}")
+        except Exception as e:
+            await log_exception("infected_watcher", e)
         await asyncio.sleep(3600)
 
 async def member_join_watcher():
     await bot.wait_until_ready()
     if MEMBER_JOIN_ROLE_ID == 0:
         return
+    await log_to_bot_channel("[MEMBERJOIN] watcher started.")
     while not bot.is_closed():
-        now = datetime.utcnow()
-        remaining = []
-        changed = False
-        for entry in pending_member_joins:
-            assign_at_str = entry.get("assign_at")
-            guild_id = entry.get("guild_id")
-            member_id = entry.get("member_id")
-            if not assign_at_str or not guild_id or not member_id:
-                continue
-            try:
-                assign_at = datetime.fromisoformat(assign_at_str.replace("Z", ""))
-            except:
-                continue
-            if now >= assign_at:
-                guild = bot.get_guild(guild_id)
-                if not guild:
+        try:
+            now = datetime.utcnow()
+            remaining = []
+            changed = False
+            for entry in pending_member_joins:
+                assign_at_str = entry.get("assign_at")
+                guild_id = entry.get("guild_id")
+                member_id = entry.get("member_id")
+                if not assign_at_str or not guild_id or not member_id:
                     continue
-                member = guild.get_member(member_id)
-                if not member:
+                try:
+                    assign_at = datetime.fromisoformat(assign_at_str.replace("Z", ""))
+                except:
                     continue
-                role = guild.get_role(MEMBER_JOIN_ROLE_ID)
-                if not role:
-                    continue
-                if role not in member.roles:
-                    try:
-                        await member.add_roles(role, reason="Delayed member join role")
-                    except:
-                        pass
-                changed = True
-            else:
-                remaining.append(entry)
-        if changed or len(remaining) != len(pending_member_joins):
-            pending_member_joins[:] = remaining
-            await save_member_join_storage()
+                if now >= assign_at:
+                    guild = bot.get_guild(guild_id)
+                    if not guild:
+                        continue
+                    member = guild.get_member(member_id)
+                    if not member:
+                        continue
+                    role = guild.get_role(MEMBER_JOIN_ROLE_ID)
+                    if not role:
+                        continue
+                    if role not in member.roles:
+                        try:
+                            await member.add_roles(role, reason="Delayed member join role")
+                            await log_to_bot_channel(f"[MEMBERJOIN] Applied member role to {member.id} in guild {guild.id}.")
+                        except:
+                            pass
+                    changed = True
+                else:
+                    remaining.append(entry)
+            if changed or len(remaining) != len(pending_member_joins):
+                pending_member_joins[:] = remaining
+                await save_member_join_storage()
+                await log_to_bot_channel(f"[MEMBERJOIN] Remaining pending entries: {len(pending_member_joins)}")
+        except Exception as e:
+            await log_exception("member_join_watcher", e)
         await asyncio.sleep(300)
 
 
@@ -955,17 +1191,9 @@ async def member_join_watcher():
 @bot.event
 async def on_ready():
     print(f"{bot.user} is online!")
-    bot.add_view(MoviePrizeView())
-    bot.add_view(NitroPrizeView())
-    bot.add_view(SteamPrizeView())
     bot.add_view(GameNotificationView())
-    await init_sticky_storage()
-    await init_prize_storage()
-    await init_deadchat_storage()
-    await init_deadchat_state_storage()
-    await init_twitch_state_storage()
-    await init_plague_storage()
-    await init_member_join_storage()
+    await run_all_inits_with_logging()
+    await log_to_bot_channel(f"Bot ready as {bot.user} in {len(bot.guilds)} guild(s).")
     bot.loop.create_task(twitch_watcher())
     bot.loop.create_task(infected_watcher())
     bot.loop.create_task(member_join_watcher())
@@ -987,14 +1215,6 @@ async def on_member_update(before, after):
         if role.id == BIRTHDAY_ROLE_ID:
             if BIRTHDAY_TEXT:
                 await ch.send(BIRTHDAY_TEXT.replace("{mention}", after.mention))
-    if INFECTED_ROLE_ID != 0 and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
-        infected_role = after.guild.get_role(INFECTED_ROLE_ID)
-        if infected_role and infected_role in new_roles:
-            announce_ch = bot.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
-            if announce_ch:
-                msg_text = INFECTED_MESSAGE_TEMPLATE.replace("{member}", after.mention)
-                sent = await announce_ch.send(msg_text)
-                infected_announce_messages[after.id] = sent.id
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -1009,8 +1229,8 @@ async def on_message(message: discord.Message):
                 await old_msg.delete()
             except discord.NotFound:
                 pass
-            except:
-                pass
+            except Exception as e:
+                await log_exception("on_message_sticky_delete", e)
         view = GameNotificationView()
         new_msg = await message.channel.send(sticky_texts[message.channel.id], view=view)
         sticky_messages[message.channel.id] = new_msg.id
@@ -1022,10 +1242,9 @@ async def on_message(message: discord.Message):
                 await asyncio.sleep(DELETE_DELAY_SECONDS)
                 try:
                     await message.delete()
-                except:
-                    pass
+                except Exception as e:
+                    await log_exception("auto_delete_delete_later", e)
             bot.loop.create_task(delete_later())
-    await bot.process_commands(message)
 
 @bot.event
 async def on_member_join(member: discord.Member):
@@ -1082,8 +1301,68 @@ async def on_member_remove(member: discord.Member):
     else:
         await log_fn(f"{member.mention} has left the server")
 
+@bot.event
+async def on_application_command_error(ctx, error):
+    await log_exception("application_command_error", error)
+    try:
+        await ctx.respond("An internal error occurred.", ephemeral=True)
+    except:
+        pass
+
+@bot.event
+async def on_error(event, *args, **kwargs):
+    exc_type, exc, tb = sys.exc_info()
+    if exc is None:
+        await log_to_bot_channel(f"Unhandled error in event {event} with no exception info.")
+    else:
+        await log_exception(f"Unhandled error in event {event}", exc)
+
 
 ############### COMMAND GROUPS ###############
+@bot.slash_command(name="storage_debug", description="Show storage message IDs for all systems")
+async def storage_debug(
+    ctx,
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    lines = [
+        f"STORAGE_CHANNEL_ID: {STORAGE_CHANNEL_ID}",
+        f"sticky_storage_message_id: {sticky_storage_message_id}",
+        f"member_join_storage_message_id: {member_join_storage_message_id}",
+        f"plague_storage_message_id: {plague_storage_message_id}",
+        f"deadchat_storage_message_id: {deadchat_storage_message_id}",
+        f"deadchat_state_storage_message_id: {deadchat_state_storage_message_id}",
+        f"movie_prize_storage_message_id: {movie_prize_storage_message_id}",
+        f"nitro_prize_storage_message_id: {nitro_prize_storage_message_id}",
+        f"steam_prize_storage_message_id: {steam_prize_storage_message_id}",
+        f"twitch_state_storage_message_id: {twitch_state_storage_message_id}",
+    ]
+    await ctx.respond("Storage debug:\n" + "\n".join(lines), ephemeral=True)
+
+@bot.slash_command(name="storage_scan", description="Show what the bot sees in the storage channel")
+async def storage_scan(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    text = await debug_scan_storage_channel()
+    if len(text) > 1900:
+        text = text[:1900] + "\n...[truncated]"
+    await ctx.respond(f"```{text}```", ephemeral=True)
+
+@bot.slash_command(name="storage_refresh", description="Rescan storage channel and reload storage message IDs")
+async def storage_refresh(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    await ctx.defer(ephemeral=True)
+    try:
+        await run_all_inits_with_logging()
+        await ctx.followup.send("Storage reload complete. Run /storage_debug to verify.", ephemeral=True)
+    except Exception as e:
+        await log_exception("storage_refresh", e)
+        try:
+            await ctx.followup.send(f"storage_refresh error: {e}", ephemeral=True)
+        except:
+            pass
+
 @bot.slash_command(name="deadchat_rescan", description="Force-scan all dead-chat channels for latest message timestamps")
 async def deadchat_rescan(ctx):
     if not ctx.author.guild_permissions.administrator:
@@ -1101,8 +1380,8 @@ async def deadchat_rescan(ctx):
                     deadchat_last_times[channel_id] = message.created_at.isoformat() + "Z"
                     count += 1
                     break
-            except:
-                pass
+            except Exception as e:
+                await log_exception("deadchat_rescan_history", e)
         await save_deadchat_storage()
     await ctx.respond(f"Rescan complete — found latest message in {count}/{len(DEAD_CHAT_CHANNEL_IDS)} dead-chat channels and saved timestamps.", ephemeral=True)
 
@@ -1241,16 +1520,7 @@ async def prize_list(
         return await ctx.respond("No scheduled prizes.", ephemeral=True)
     lines = []
     for p in entries:
-        d = p.get("date")
-        if not d:
-            send_at = p.get("send_at")
-            if isinstance(send_at, str) and send_at.strip():
-                parts = send_at.split()
-                if parts:
-                    d = parts[0]
-        if not d:
-            d = "unknown-date"
-        lines.append(f"ID {p.get('id', '?')} ┃ {d} ┃ <#{p.get('channel_id', ctx.channel.id)}>")
+        lines.append(f"ID {p['id']} ┃ {p['date']} ┃ <#{p['channel_id']}>")
     text = "\n".join(lines)
     await ctx.respond(f"Scheduled {prize_type} prizes:\n{text}", ephemeral=True)
 
@@ -1283,6 +1553,10 @@ async def prize_movie(
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Movie Request*\nDrop Rate: *Common*"
     if month is None and day is None:
+        drop_ch = bot.get_channel(PRIZE_DROP_CHANNEL_ID) or ctx.channel
+        if isinstance(drop_ch, discord.TextChannel):
+            await drop_ch.send(content, view=MoviePrizeView())
+            return await ctx.respond(f"Prize drop sent in {drop_ch.mention}.", ephemeral=True)
         return await ctx.respond(content, view=MoviePrizeView())
     if month is None or day is None:
         return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
@@ -1313,6 +1587,10 @@ async def prize_nitro(
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Month of Nitro Basic*\nDrop Rate: *Uncommon*"
     if month is None and day is None:
+        drop_ch = bot.get_channel(PRIZE_DROP_CHANNEL_ID) or ctx.channel
+        if isinstance(drop_ch, discord.TextChannel):
+            await drop_ch.send(content, view=NitroPrizeView())
+            return await ctx.respond(f"Prize drop sent in {drop_ch.mention}.", ephemeral=True)
         return await ctx.respond(content, view=NitroPrizeView())
     if month is None or day is None:
         return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
@@ -1343,6 +1621,10 @@ async def prize_steam(
         return await ctx.respond("Admin only.", ephemeral=True)
     content = "**YOU'VE FOUND A PRIZE!**\nPrize: *Steam Gift Card*\nDrop Rate: *Rare*"
     if month is None and day is None:
+        drop_ch = bot.get_channel(PRIZE_DROP_CHANNEL_ID) or ctx.channel
+        if isinstance(drop_ch, discord.TextChannel):
+            await drop_ch.send(content, view=SteamPrizeView())
+            return await ctx.respond(f"Prize drop sent in {drop_ch.mention}.", ephemeral=True)
         return await ctx.respond(content, view=SteamPrizeView())
     if month is None or day is None:
         return await ctx.respond("Provide month and day, or leave both blank.", ephemeral=True)
