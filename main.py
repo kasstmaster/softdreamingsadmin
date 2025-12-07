@@ -775,6 +775,24 @@ async def handle_dead_chat_message(message: discord.Message):
     dead_last_notice_message_ids[message.channel.id] = notice.id
     await save_deadchat_state()
 
+async def init_deadchat_storage():
+    global deadchat_storage_message_id, deadchat_last_times
+    msg = await find_storage_message("DEADCHAT_DATA:")
+    if not msg:
+        return
+    deadchat_storage_message_id = msg.id
+    raw = msg.content[len("DEADCHAT_DATA:"):]
+    if not raw.strip():
+        deadchat_last_times.clear()
+        return
+    data = json.loads(raw)
+    deadchat_last_times.clear()
+    for cid_str, ts in data.items():
+        try:
+            deadchat_last_times[int(cid_str)] = ts
+        except:
+            pass
+
 async def save_deadchat_storage():
     global deadchat_storage_message_id
     if STORAGE_CHANNEL_ID == 0 or deadchat_storage_message_id is None:
