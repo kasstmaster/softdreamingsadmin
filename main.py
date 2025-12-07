@@ -106,7 +106,6 @@ MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
 
 PRIZE_PLAGUE_TRIGGER_HOUR_UTC = int(os.getenv("PRIZE_PLAGUE_TRIGGER_HOUR_UTC", "12"))
 INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
-INFECTED_MESSAGE_TEMPLATE = "🦠 **INFECTION OUTBREAK!**"
 INFECTED_ANNOUNCE_CHANNEL_ID = int(os.getenv("INFECTED_ANNOUNCE_CHANNEL_ID", "0"))
 
 STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
@@ -1190,14 +1189,6 @@ async def on_member_update(before, after):
         if role.id == BIRTHDAY_ROLE_ID:
             if BIRTHDAY_TEXT:
                 await ch.send(BIRTHDAY_TEXT.replace("{mention}", after.mention))
-    if INFECTED_ROLE_ID != 0 and INFECTED_ANNOUNCE_CHANNEL_ID != 0:
-        infected_role = after.guild.get_role(INFECTED_ROLE_ID)
-        if infected_role and infected_role in new_roles:
-            announce_ch = bot.get_channel(INFECTED_ANNOUNCE_CHANNEL_ID)
-            if announce_ch:
-                msg_text = INFECTED_MESSAGE_TEMPLATE.replace("{member}", after.mention)
-                sent = await announce_ch.send(msg_text)
-                infected_announce_messages[after.id] = sent.id
 
 @bot.event
 async def on_message(message: discord.Message):
