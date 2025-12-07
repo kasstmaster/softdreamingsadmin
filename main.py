@@ -15,7 +15,7 @@
 # • Do NOT add comments inside the code. No inline labels.
 # ============================================================
 # BOT NAME: ADMIN BOT
-# PURPOSE
+# PURPOSE 
 # • System backbone: shared storage messages, state load/save, one-time init commands
 # • Entry/exit flow: welcome text, delayed member role, bot join role, boost + birthday messages
 # • Moderation logging: bans, kicks, leaves routed to staff log thread/bot log channel
