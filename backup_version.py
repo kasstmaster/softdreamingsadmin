@@ -655,27 +655,32 @@ async def handle_dead_chat_message(message: discord.Message):
     global dead_current_holder_id
     if DEAD_CHAT_ROLE_ID == 0 or message.channel.id not in DEAD_CHAT_CHANNEL_IDS or message.author.id in IGNORE_MEMBER_IDS:
         return
+
     now = discord.utils.utcnow()
     cid = message.channel.id
     now_s = now.isoformat() + "Z"
+
     last_raw = deadchat_last_times.get(cid)
-    deadchat_last_times[cid] = now_s
-    await save_deadchat_storage()
-    if not last_raw:
-        return
-    try:
-        last_time = datetime.fromisoformat(last_raw.replace("Z", ""))
-    except:
-        return
-    if (now - last_time).total_seconds() < DEAD_CHAT_IDLE_SECONDS:
-        return
+    if last_raw:
+        try:
+            last_time = datetime.fromisoformat(last_raw.replace("Z", ""))
+            if (now - last_time).total_seconds() < DEAD_CHAT_IDLE_SECONDS:
+                return
+        except:
+            pass
+
     role = message.guild.get_role(DEAD_CHAT_ROLE_ID)
     if not role:
         return
+
     if DEAD_CHAT_COOLDOWN_SECONDS > 0:
         last_win = dead_last_win_time.get(message.author.id)
         if last_win and (now - last_win).total_seconds() < DEAD_CHAT_COOLDOWN_SECONDS:
             return
+
+    deadchat_last_times[cid] = now_s
+    await save_deadchat_storage()
+
     for member in list(role.members):
         if member.id != message.author.id:
             await member.remove_roles(role, reason="Dead Chat stolen")
@@ -723,7 +728,7 @@ async def handle_dead_chat_message(message: discord.Message):
             f"-# Those who claim Dead Chat after this moment will not be touched by the disease.\n"
             f"-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
         )
-        notice = await message.channel.send(plague_text)
+        await message.channel.send(plague_text)
         await log_to_bot_channel(f"[PLAGUE] {message.author.id} infected on {today_str} in channel {message.channel.id}.")
     else:
         minutes = DEAD_CHAT_IDLE_SECONDS // 60
@@ -732,7 +737,7 @@ async def handle_dead_chat_message(message: discord.Message):
             f"-# There's a random chance to win prizes with this role.\n"
             f"-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
         )
-        notice = await message.channel.send(notice_text)
+        await message.channel.send(notice_text)
 
 async def init_deadchat_storage():
     global deadchat_storage_message_id, deadchat_last_times
