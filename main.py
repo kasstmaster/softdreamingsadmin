@@ -1228,7 +1228,6 @@ async def on_message(message: discord.Message):
                 except Exception as e:
                     await log_exception("auto_delete_delete_later", e)
             bot.loop.create_task(delete_later())
-    await bot.process_commands(message)
 
 @bot.event
 async def on_member_join(member: discord.Member):
