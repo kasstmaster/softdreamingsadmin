@@ -96,6 +96,9 @@ TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
 BOT_LOG_THREAD_ID = int(os.getenv("BOT_LOG_THREAD_ID", "0"))
 
+ACTIVE_ROLE_ID = int(os.getenv("ACTIVE_ROLE_ID", "0"))
+INACTIVE_DAYS_THRESHOLD = int(os.getenv("INACTIVE_DAYS_THRESHOLD", "30"))
+
 DEAD_CHAT_ROLE_ID = int(os.getenv("DEAD_CHAT_ROLE_ID", "0"))
 DEAD_CHAT_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("DEAD_CHAT_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
 DEAD_CHAT_IDLE_SECONDS = int(os.getenv("DEAD_CHAT_IDLE_SECONDS", "600"))
@@ -121,6 +124,9 @@ else:
 twitch_access_token: str | None = None
 twitch_live_state: dict[str, bool] = {}
 twitch_state_storage_message_id: int | None = None
+
+last_activity_storage_message_id: int | None = None
+last_activity: dict[int, str] = {}
 
 dead_current_holder_id: int | None = None
 dead_last_notice_message_ids: dict[int, int | None] = {}
@@ -973,6 +979,58 @@ async def fetch_twitch_streams():
     result = {s["user_login"].lower(): s for s in data.get("data", [])}
     return result
 
+async def init_last_activity_storage():
+    global last_activity_storage_message_id, last_activity
+    msg = await find_storage_message("ACTIVITY_DATA:")
+    if not msg:
+        return
+    last_activity_storage_message_id = msg.id
+    raw = msg.content[len("ACTIVITY_DATA:"):]
+    if not raw.strip():
+        last_activity = {}
+        return
+    try:
+        data = json.loads(raw)
+        last_activity = {}
+        for mid_str, ts in data.items():
+            try:
+                last_activity[int(mid_str)] = ts
+            except:
+                pass
+        await log_to_bot_channel(f"[ACTIVITY] Loaded last activity for {len(last_activity)} member(s).")
+    except Exception as e:
+        await log_to_bot_channel(f"init_last_activity_storage failed: {e}")
+        last_activity = {}
+
+async def save_last_activity_storage():
+    global last_activity_storage_message_id
+    if STORAGE_CHANNEL_ID == 0 or last_activity_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch or not isinstance(ch, TextChannel):
+        return
+    try:
+        msg = await ch.fetch_message(last_activity_storage_message_id)
+        payload = {str(k): v for k, v in last_activity.items()}
+        await msg.edit(content="ACTIVITY_DATA:" + json.dumps(payload))
+    except Exception as e:
+        await log_to_bot_channel(f"save_last_activity_storage failed: {e}")
+
+async def touch_member_activity(member: discord.Member):
+    if member.bot:
+        return
+    now = discord.utils.utcnow().isoformat() + "Z"
+    last_activity[member.id] = now
+    await save_last_activity_storage()
+    if ACTIVE_ROLE_ID == 0:
+        return
+    role = member.guild.get_role(ACTIVE_ROLE_ID)
+    if role and role not in member.roles:
+        try:
+            await member.add_roles(role, reason="Marked active by activity tracking")
+        except Exception as e:
+            await log_exception("touch_member_activity_add_role", e)
+
 
 ############### VIEWS / UI COMPONENTS ###############
 class BasePrizeView(discord.ui.View):
@@ -1186,6 +1244,37 @@ async def member_join_watcher():
             await log_exception("member_join_watcher", e)
         await asyncio.sleep(300)
 
+async def activity_inactive_watcher():
+    await bot.wait_until_ready()
+    if ACTIVE_ROLE_ID == 0:
+        return
+    await log_to_bot_channel("[ACTIVITY] activity_inactive_watcher started.")
+    while not bot.is_closed():
+        try:
+            now = datetime.utcnow()
+            cutoff = now - timedelta(days=INACTIVE_DAYS_THRESHOLD)
+            inactive_ids = set()
+            for mid, ts in list(last_activity.items()):
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", ""))
+                except:
+                    continue
+                if dt < cutoff:
+                    inactive_ids.add(mid)
+            for guild in bot.guilds:
+                role = guild.get_role(ACTIVE_ROLE_ID)
+                if not role:
+                    continue
+                for member in list(role.members):
+                    if member.id in inactive_ids or member.id not in last_activity:
+                        try:
+                            await member.remove_roles(role, reason="Marked inactive by activity tracking")
+                        except Exception as e:
+                            await log_exception("activity_inactive_watcher_remove_role", e)
+        except Exception as e:
+            await log_exception("activity_inactive_watcher", e)
+        await asyncio.sleep(86400)
+
 
 ############### EVENT HANDLERS ###############
 @bot.event
@@ -1197,6 +1286,8 @@ async def on_ready():
     bot.loop.create_task(twitch_watcher())
     bot.loop.create_task(infected_watcher())
     bot.loop.create_task(member_join_watcher())
+    bot.loop.create_task(activity_inactive_watcher())
+    await init_last_activity_storage()
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
@@ -1220,6 +1311,7 @@ async def on_member_update(before, after):
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+    await touch_member_activity(message.author)
     await handle_dead_chat_message(message)
     if message.channel.id in sticky_texts:
         old_id = sticky_messages.get(message.channel.id)
@@ -1396,6 +1488,19 @@ async def memberjoin_init(ctx):
     global member_join_storage_message_id
     member_join_storage_message_id = msg.id
     await ctx.respond(f"Member join storage created: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="activity_init", description="Create last-activity storage message")
+async def activity_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("ACTIVITY_DATA:{}")
+    global last_activity_storage_message_id
+    last_activity_storage_message_id = msg.id
+    await save_last_activity_storage()
+    await ctx.respond(f"Activity storage message created: {msg.id}", ephemeral=True)
 
 @bot.slash_command(name="deadchat_state_init", description="Create DEADCHAT_STATE storage message")
 async def deadchat_state_init(ctx):
