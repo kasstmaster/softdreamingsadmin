@@ -731,6 +731,10 @@ async def handle_dead_chat_message(message: discord.Message):
     global dead_current_holder_id
     if DEAD_CHAT_ROLE_ID == 0 or message.channel.id not in DEAD_CHAT_CHANNEL_IDS or message.author.id in IGNORE_MEMBER_IDS:
         return
+    if ACTIVE_ROLE_ID != 0:
+        active_role = message.guild.get_role(ACTIVE_ROLE_ID)
+        if active_role and active_role not in message.author.roles:
+            return
     now = discord.utils.utcnow()
     cid = message.channel.id
     now_s = now.isoformat() + "Z"
