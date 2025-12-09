@@ -21,6 +21,8 @@ BOOST_TEXT when a user boosts.
 
 BIRTHDAY_TEXT when the birthday role is assigned.
 
+---
+
 # 2. Active Member Tracking System (NEW)
 
 Tracks server-wide user activity and manages the Active Member role.
@@ -38,6 +40,8 @@ A daily inactivity watcher removes the Active role from members who:
 Only members with the Active role can trigger Dead Chat events or Plague infections.
 
 Admins can initialize the storage message using `/activity_init`.
+
+---
 
 # 3. Dead Chat System (Role Game)
 
@@ -124,6 +128,8 @@ Features
 - Each prize uses a persistent interactive button to claim prize.
 - Sends an announcement to the welcome channel when claimed.
 
+---
+
 # 6. Twitch Live Notification System
 Features
 
@@ -138,6 +144,8 @@ Saves state so announcements aren't duplicated.
 Saves live-state in storage.
 
 Refreshes OAuth token when expired.
+
+---
 
 # 7. Sticky Message System
 
@@ -161,6 +169,8 @@ current sticky message ID
 
 Reposts with a GameNotificationView attached.
 
+---
+
 # 8. Game Notification Role Selector (UI Dropdown)
 
 UI component letting users opt-in to game roles.
@@ -183,6 +193,8 @@ Automatically adds/removes roles.
 
 Replies ephemerally with changes.
 
+---
+
 # 9. Auto-Delete Channels
 
 `For channels in AUTO_DELETE_CHANNEL_IDS:`
@@ -190,6 +202,8 @@ Replies ephemerally with changes.
 Deletes any message after DELETE_DELAY_SECONDS.
 
 Birthday messages are exempt (detected via keywords).
+
+---
 
 # 10. Logging System
 
@@ -217,6 +231,8 @@ dead chat errors
 
 storage issues
 
+---
+
 # 11. Storage System (Message-Based Persistent DB)
 
 Stored inside a hidden storage channel (STORAGE_CHANNEL_ID).
@@ -239,6 +255,8 @@ Plague data
 
 Admin commands create the missing storage messages.
 
+---
+
 # 12. Admin Utility Commands
 /say
 
@@ -251,6 +269,8 @@ Edit any bot message with 4 lines of content.
 /birthday_announce
 
 Manual birthday message.
+
+---
 
 # 13. Background Loops
 
@@ -266,6 +286,8 @@ activity_inactive_watcher: removes inactive active members
 
 scheduled prize runners: one loop per scheduled prize
 
+---
+
 # 14. Views & Buttons
 BasePrizeView
 
@@ -280,6 +302,8 @@ GameNotificationView
 GameNotificationSelect
 
 All are persistent (timeout=None or registered on_ready).
+
+---
 
 # 15. Stealth Features & Edge-Case Handling
 
