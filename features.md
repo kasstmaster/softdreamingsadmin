@@ -21,11 +21,31 @@ BOOST_TEXT when a user boosts.
 
 BIRTHDAY_TEXT when the birthday role is assigned.
 
-# 2. Dead Chat System (Role Game)
+# 2. Active Member Tracking System (NEW)
+
+Tracks server-wide user activity and manages the Active Member role.
+
+Whenever a non-bot user sends a message:
+
+- Saves their last-active timestamp in `ACTIVITY_DATA`
+- Grants `ACTIVE_ROLE_ID` if they do not already have it
+
+A daily inactivity watcher removes the Active role from members who:
+
+- Have not spoken within `INACTIVE_DAYS_THRESHOLD` days  
+- Or have no stored activity record (treated as idle)
+
+Only members with the Active role can trigger Dead Chat events or Plague infections.
+
+Admins can initialize the storage message using `/activity_init`.
+
+# 3. Dead Chat System (Role Game)
 
 This is one of the largest subsystems.
 
 Dead Chat Role Mechanics
+
+Only Active members may trigger Dead Chat events.
 
 Tracks activity timestamps per Dead Chat channel.
 
@@ -58,11 +78,13 @@ Has `/deadchat_init`, `/deadchat_state_init`, `/deadchat_rescan` to initialize o
 
 ---
 
-# 3. Dead Chat Plague System
+# 4. Dead Chat Plague System
 
 Monthly “contagious day” mechanic.
 
 Features
+
+Only Active members may trigger a plague infection.
 
 Admin schedules a plague date with `/plague_infect`.
 
@@ -81,7 +103,7 @@ Storage
 
 ---
 
-# 4. Prize Drop System (Movie / Nitro / Steam)
+# 5. Prize Drop System (Movie / Nitro / Steam)
 
 Supports common / uncommon / rare prize drops triggered by Dead Chat or scheduled by admins.
 
@@ -102,7 +124,7 @@ Features
 - Each prize uses a persistent interactive button to claim prize.
 - Sends an announcement to the welcome channel when claimed.
 
-# 5. Twitch Live Notification System
+# 6. Twitch Live Notification System
 Features
 
 Watches listed Twitch channels via API.
@@ -117,7 +139,7 @@ Saves live-state in storage.
 
 Refreshes OAuth token when expired.
 
-# 6. Sticky Message System
+# 7. Sticky Message System
 
 Per-channel persistent sticky messages with UI buttons.
 
@@ -139,7 +161,7 @@ current sticky message ID
 
 Reposts with a GameNotificationView attached.
 
-# 7. Game Notification Role Selector (UI Dropdown)
+# 8. Game Notification Role Selector (UI Dropdown)
 
 UI component letting users opt-in to game roles.
 
@@ -161,7 +183,7 @@ Automatically adds/removes roles.
 
 Replies ephemerally with changes.
 
-# 8. Auto-Delete Channels
+# 9. Auto-Delete Channels
 
 `For channels in AUTO_DELETE_CHANNEL_IDS:`
 
@@ -169,7 +191,7 @@ Deletes any message after DELETE_DELAY_SECONDS.
 
 Birthday messages are exempt (detected via keywords).
 
-# 9. Logging System
+# 10. Logging System
 
 `Two destinations:`
 
@@ -195,7 +217,7 @@ dead chat errors
 
 storage issues
 
-# 10. Storage System (Message-Based Persistent DB)
+# 11. Storage System (Message-Based Persistent DB)
 
 Stored inside a hidden storage channel (STORAGE_CHANNEL_ID).
 
@@ -217,7 +239,7 @@ Plague data
 
 Admin commands create the missing storage messages.
 
-# 11. Admin Utility Commands
+# 12. Admin Utility Commands
 /say
 
 Bot says a message.
@@ -230,21 +252,21 @@ Edit any bot message with 4 lines of content.
 
 Manual birthday message.
 
-# 12. Background Loops
+# 13. Background Loops
 
 `Running continuously:`
 
 twitch_watcher: checks live status every 60s
 
-deadchat_reset_loop: resets Dead Chat role once per day
-
 infected_watcher: clears expiring infections
 
 member_join_watcher: applies delayed join roles
 
+activity_inactive_watcher: removes inactive active members
+
 scheduled prize runners: one loop per scheduled prize
 
-# 13. Views & Buttons
+# 14. Views & Buttons
 BasePrizeView
 
 MoviePrizeView
@@ -259,7 +281,7 @@ GameNotificationSelect
 
 All are persistent (timeout=None or registered on_ready).
 
-# 14. Stealth Features & Edge-Case Handling
+# 15. Stealth Features & Edge-Case Handling
 
 Prevents bot messages from triggering dead chat.
 
@@ -284,6 +306,8 @@ Delayed role assignment for new members
 Bot-join role assignment
 
 Kick/ban/leave logging
+
+Active member tracking system
 
 Dead Chat role system with steal mechanic
 
@@ -321,4 +345,4 @@ Admin commands for repairing/initializing storage
 
 Admin message edit & say tools
 
-Background workers for Twitch, prizes, dead chat reset, join role, infection expiry
+Background workers for Twitch, prizes, dead chat reset, join role, activity removal, infection expiry
