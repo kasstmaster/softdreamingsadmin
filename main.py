@@ -1578,17 +1578,6 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
     await ctx.channel.send(message.replace("\\n", "\n"))
     await ctx.respond("Sent!", ephemeral=True)
 
-@bot.slash_command(name="birthday_announce", description="Manually send the birthday message for a member")
-async def birthday_announce(ctx, member: discord.Option(discord.Member, "Member", required=True)):
-    if not ctx.author.guild_permissions.administrator:
-        return await ctx.respond("You need Administrator.", ephemeral=True)
-    ch = bot.get_channel(WELCOME_CHANNEL_ID)
-    if not ch:
-        return await ctx.respond("Welcome channel not found.", ephemeral=True)
-    msg = BIRTHDAY_TEXT.replace("{mention}", member.mention) if BIRTHDAY_TEXT else f"Happy birthday, {member.mention}!"
-    await ch.send(msg)
-    await ctx.respond(f"Sent birthday message for {member.mention}.", ephemeral=True)
-
 @bot.slash_command(name="editbotmsg", description="Edit a bot message in this channel with 4 lines")
 async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, line4: str,):
     if not (ctx.author.guild_permissions.administrator or ctx.guild.owner_id == ctx.author.id):
@@ -1610,6 +1599,27 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
     new_content = "\n".join([line1, line2, line3, line4])
     await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
+
+@bot.slash_command(name="birthday_announce", description="Manually send the birthday message for a member")
+async def birthday_announce(ctx, member: discord.Option(discord.Member, "Member", required=True)):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("You need Administrator.", ephemeral=True)
+    ch = bot.get_channel(WELCOME_CHANNEL_ID)
+    if not ch:
+        return await ctx.respond("Welcome channel not found.", ephemeral=True)
+    msg = BIRTHDAY_TEXT.replace("{mention}", member.mention) if BIRTHDAY_TEXT else f"Happy birthday, {member.mention}!"
+    await ch.send(msg)
+    await ctx.respond(f"Sent birthday message for {member.mention}.", ephemeral=True)
+
+@bot.slash_command(name="activity_add", description="Mark a member as active right now")
+async def activity_add(
+    ctx,
+    member: discord.Option(discord.Member, "Member to mark active", required=True),
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    await touch_member_activity(member)
+    await ctx.respond(f"{member.mention} marked active and given the active role (if configured).", ephemeral=True)
 
 @bot.slash_command(name="prize_list", description="List scheduled prizes")
 async def prize_list(
