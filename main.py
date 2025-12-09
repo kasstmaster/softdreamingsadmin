@@ -1333,7 +1333,7 @@ async def on_message(message: discord.Message):
         await save_stickies()
     if message.channel.id in AUTO_DELETE_CHANNEL_IDS:
         content = message.content.lower()
-        if not ("happy birthday" in content or "happy bday" in content or "happy b-day" in content or "happy belated bday" in content or "happy belated birthday" in content):
+        if not ("happy birthday" in content or "happy bday" in content or "happy b-day" in content or "happy belated bday" in content or "happy belated b-day" in content or "happy belated birthday" in content):
             async def delete_later():
                 await asyncio.sleep(DELETE_DELAY_SECONDS)
                 try:
