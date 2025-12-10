@@ -1237,6 +1237,7 @@ async def member_join_watcher():
                             await log_to_bot_channel(f"[MEMBERJOIN] Applied member role to {member.id} in guild {guild.id}.")
                         except:
                             pass
+                    await touch_member_activity(member)
                     changed = True
                 else:
                     remaining.append(entry)
