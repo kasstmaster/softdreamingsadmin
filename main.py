@@ -1273,6 +1273,7 @@ async def activity_inactive_watcher():
                     if member.id in inactive_ids or member.id not in last_activity:
                         try:
                             await member.remove_roles(role, reason="Marked inactive by activity tracking")
+                            await log_to_bot_channel(f"{member.mention} is officially inactive @everyone")
                         except Exception as e:
                             await log_exception("activity_inactive_watcher_remove_role", e)
         except Exception as e:
