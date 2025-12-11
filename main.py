@@ -121,6 +121,9 @@ GAME_NOTIF_REMOVED_PREFIX = "Removed: "
 
 
 ############### GLOBAL STATE / STORAGE ###############
+guild_configs: dict[int, dict] = {}
+guild_config_storage_message_id: int | None = None
+
 twitch_access_token: str | None = None
 twitch_live_state: dict[str, bool] = {}
 twitch_state_storage_message_id: int | None = None
@@ -157,6 +160,70 @@ startup_log_buffer: list[str] = []
 
 
 ############### HELPER FUNCTIONS ###############
+async def init_guild_config_storage():
+    global guild_config_storage_message_id, guild_configs
+    msg = await find_storage_message("CONFIG_DATA:")
+    if not msg:
+        return
+    guild_config_storage_message_id = msg.id
+    raw = msg.content[len("CONFIG_DATA:"):]
+    if not raw.strip():
+        guild_configs = {}
+        return
+    try:
+        data = json.loads(raw)
+        guild_configs = {int(gid): cfg for gid, cfg in data.items()}
+        await log_to_bot_channel(f"[CONFIG] Loaded config for {len(guild_configs)} guild(s).")
+    except Exception as e:
+        guild_configs = {}
+        await log_to_bot_channel(f"init_guild_config_storage failed: {e}")
+
+async def save_guild_config_storage():
+    if STORAGE_CHANNEL_ID == 0 or guild_config_storage_message_id is None:
+        return
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not ch or not isinstance(ch, TextChannel):
+        return
+    payload = {str(gid): cfg for gid, cfg in guild_configs.items()}
+    try:
+        msg = await ch.fetch_message(guild_config_storage_message_id)
+        await msg.edit(content="CONFIG_DATA:" + json.dumps(payload))
+    except Exception as e:
+        await log_to_bot_channel(f"save_guild_config_storage failed: {e}")
+
+def get_guild_config(guild: discord.Guild) -> dict | None:
+    if not guild:
+        return None
+    return guild_configs.get(guild.id)
+
+def ensure_guild_config(guild: discord.Guild) -> dict:
+    cfg = guild_configs.get(guild.id)
+    if cfg is None:
+        cfg = {}
+        guild_configs[guild.id] = cfg
+    return cfg
+
+def get_config_channel(guild: discord.Guild, key: str) -> TextChannel | None:
+    cfg = get_guild_config(guild)
+    if not cfg:
+        return None
+    cid = cfg.get(key)
+    if not cid:
+        return None
+    ch = guild.get_channel(cid)
+    if isinstance(ch, TextChannel):
+        return ch
+    return None
+
+def get_config_role(guild: discord.Guild, key: str) -> discord.Role | None:
+    cfg = get_guild_config(guild)
+    if not cfg:
+        return None
+    rid = cfg.get(key)
+    if not rid:
+        return None
+    return guild.get_role(rid)
+
 async def debug_scan_storage_channel(limit: int = 20) -> str:
     ch = bot.get_channel(STORAGE_CHANNEL_ID)
     if not isinstance(ch, discord.TextChannel):
@@ -340,7 +407,17 @@ async def run_all_inits_with_logging():
         "TWITCH_STATE": True,
         "PLAGUE": True,
         "MEMBERJOIN": True,
+        "CONFIG": True,
     }
+    try:
+        await init_guild_config_storage()
+        if guild_config_storage_message_id is None:
+            storage["CONFIG"] = False
+            problems.append("CONFIG_DATA storage missing; run /config_init to create it.")
+    except Exception as e:
+        storage["CONFIG"] = False
+        problems.append("init_guild_config_storage failed; guild configs could not be loaded.")
+        await log_exception("init_guild_config_storage", e)
     try:
         await init_sticky_storage()
         if sticky_storage_message_id is None:
@@ -448,6 +525,10 @@ async def run_all_inits_with_logging():
         lines.append("`✅` Twitch state storage")
     else:
         lines.append("`⚠️` **Twitch state storage** — TWITCH_STATE storage message is missing or unreadable, so Twitch live/offline state cannot be persisted.")
+    if storage["CONFIG"]:
+        lines.append("`✅` Guild config storage")
+    else:
+        lines.append("`⚠️` **Guild config storage** — CONFIG_DATA storage message is missing or unreadable, so per-guild setup cannot be persisted.")
     lines.append("")
     lines.append("[RUNTIME CONFIG]")
     if runtime_results.get("CHANNELS", False):
@@ -802,10 +883,14 @@ async def initialize_dead_chat():
 
 async def handle_dead_chat_message(message: discord.Message):
     global dead_current_holder_id
-    if DEAD_CHAT_ROLE_ID == 0 or message.channel.id not in DEAD_CHAT_CHANNEL_IDS or message.author.id in IGNORE_MEMBER_IDS:
+    cfg = get_guild_config(message.guild)
+    dead_role_id = cfg.get("dead_chat_role_id", DEAD_CHAT_ROLE_ID) if cfg else DEAD_CHAT_ROLE_ID
+    dead_channels = cfg.get("dead_chat_channel_ids", DEAD_CHAT_CHANNEL_IDS) if cfg else DEAD_CHAT_CHANNEL_IDS
+    active_role_id = cfg.get("active_role_id", ACTIVE_ROLE_ID) if cfg else ACTIVE_ROLE_ID
+    if dead_role_id == 0 or message.channel.id not in dead_channels or message.author.id in IGNORE_MEMBER_IDS:
         return
-    if ACTIVE_ROLE_ID != 0:
-        active_role = message.guild.get_role(ACTIVE_ROLE_ID)
+    if active_role_id != 0:
+        active_role = message.guild.get_role(active_role_id)
         if active_role and active_role not in message.author.roles:
             return
     now = discord.utils.utcnow()
@@ -822,7 +907,7 @@ async def handle_dead_chat_message(message: discord.Message):
         return
     if (now - last_time).total_seconds() < DEAD_CHAT_IDLE_SECONDS:
         return
-    role = message.guild.get_role(DEAD_CHAT_ROLE_ID)
+    role = message.guild.get_role(dead_role_id)
     if not role:
         return
     if DEAD_CHAT_COOLDOWN_SECONDS > 0:
@@ -857,7 +942,8 @@ async def handle_dead_chat_message(message: discord.Message):
             if matching:
                 triggered_prize = True
             for p in matching:
-                channel_id = PRIZE_DROP_CHANNEL_ID or p.get("channel_id") or message.channel.id
+                cfg_drop_id = cfg.get("prize_drop_channel_id") if cfg else None
+                channel_id = cfg_drop_id or PRIZE_DROP_CHANNEL_ID or p.get("channel_id") or message.channel.id
                 channel = message.guild.get_channel(channel_id)
                 if not channel:
                     channel = message.channel
@@ -1301,8 +1387,6 @@ async def infected_watcher():
 
 async def member_join_watcher():
     await bot.wait_until_ready()
-    if MEMBER_JOIN_ROLE_ID == 0:
-        return
     while not bot.is_closed():
         try:
             now = datetime.utcnow()
@@ -1322,10 +1406,14 @@ async def member_join_watcher():
                     guild = bot.get_guild(guild_id)
                     if not guild:
                         continue
+                    cfg = get_guild_config(guild)
+                    member_role_id = cfg.get("member_join_role_id", MEMBER_JOIN_ROLE_ID) if cfg else MEMBER_JOIN_ROLE_ID
+                    if not member_role_id:
+                        continue
                     member = guild.get_member(member_id)
                     if not member:
                         continue
-                    role = guild.get_role(MEMBER_JOIN_ROLE_ID)
+                    role = guild.get_role(member_role_id)
                     if not role:
                         continue
                     if role not in member.roles:
@@ -1350,8 +1438,6 @@ async def member_join_watcher():
 
 async def activity_inactive_watcher():
     await bot.wait_until_ready()
-    if ACTIVE_ROLE_ID == 0:
-        return
     while not bot.is_closed():
         try:
             now = discord.utils.utcnow()
@@ -1365,7 +1451,11 @@ async def activity_inactive_watcher():
                 if dt < cutoff:
                     inactive_ids.add(mid)
             for guild in bot.guilds:
-                role = guild.get_role(ACTIVE_ROLE_ID)
+                cfg = get_guild_config(guild)
+                active_role_id = cfg.get("active_role_id", ACTIVE_ROLE_ID) if cfg else ACTIVE_ROLE_ID
+                if not active_role_id:
+                    continue
+                role = guild.get_role(active_role_id)
                 if not role:
                     continue
                 for member in list(role.members):
@@ -1415,12 +1505,14 @@ async def on_ready():
 
 @bot.event
 async def on_member_update(before, after):
-    ch = bot.get_channel(WELCOME_CHANNEL_ID)
+    cfg = get_guild_config(after.guild)
+    ch = get_config_channel(after.guild, "welcome_channel_id") if cfg else bot.get_channel(WELCOME_CHANNEL_ID)
     if not ch:
         return
+    birthday_role_id = cfg.get("birthday_role_id", BIRTHDAY_ROLE_ID) if cfg else BIRTHDAY_ROLE_ID
     new_roles = set(after.roles) - set(before.roles)
     for role in new_roles:
-        if role.id == BIRTHDAY_ROLE_ID:
+        if role.id == birthday_role_id:
             if BIRTHDAY_TEXT:
                 await ch.send(BIRTHDAY_TEXT.replace("{mention}", after.mention))
                 await log_to_bot_channel(
@@ -1447,7 +1539,9 @@ async def on_message(message: discord.Message):
         new_msg = await message.channel.send(sticky_texts[message.channel.id], view=view)
         sticky_messages[message.channel.id] = new_msg.id
         await save_stickies()
-    if message.channel.id in AUTO_DELETE_CHANNEL_IDS:
+    cfg = get_guild_config(message.guild)
+    auto_ids = cfg.get("auto_delete_channel_ids", AUTO_DELETE_CHANNEL_IDS) if cfg else AUTO_DELETE_CHANNEL_IDS
+    if message.channel.id in auto_ids:
         content = message.content.lower()
         if not ("happy birthday" in content or "happy bday" in content or "happy b-day" in content or "happy belated bday" in content or "happy belated b-day" in content or "happy belated birthday" in content):
             async def delete_later():
@@ -1463,18 +1557,21 @@ async def on_message(message: discord.Message):
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    ch = bot.get_channel(WELCOME_CHANNEL_ID)
+    cfg = get_guild_config(member.guild)
+    ch = get_config_channel(member.guild, "welcome_channel_id") if cfg else bot.get_channel(WELCOME_CHANNEL_ID)
     if member.bot:
         await log_to_bot_channel(f"Bot joined: {member.mention}")
-        if BOT_JOIN_ROLE_ID:
-            role = member.guild.get_role(BOT_JOIN_ROLE_ID)
+        bot_role_id = cfg.get("bot_join_role_id", BOT_JOIN_ROLE_ID) if cfg else BOT_JOIN_ROLE_ID
+        if bot_role_id:
+            role = member.guild.get_role(bot_role_id)
             if role:
                 await member.add_roles(role)
         return
     await log_to_bot_channel(
         f"[JOIN] Member joined: {member.mention} (ID {member.id}) in guild {member.guild.id}."
     )
-    if MEMBER_JOIN_ROLE_ID:
+    member_role_id = cfg.get("member_join_role_id", MEMBER_JOIN_ROLE_ID) if cfg else MEMBER_JOIN_ROLE_ID
+    if member_role_id:
         assign_at = datetime.utcnow() + timedelta(days=1)
         pending_member_joins.append(
             {
@@ -1697,6 +1794,84 @@ async def deadchat_init(ctx):
     deadchat_storage_message_id = msg.id
     await save_deadchat_storage()
     await ctx.respond(f"Deadchat storage message created: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="config_init", description="Create guild config storage message")
+async def config_init(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    ch = bot.get_channel(STORAGE_CHANNEL_ID)
+    if not isinstance(ch, discord.TextChannel):
+        return await ctx.respond("Invalid storage channel", ephemeral=True)
+    msg = await ch.send("CONFIG_DATA:{}")
+    global guild_config_storage_message_id
+    guild_config_storage_message_id = msg.id
+    await save_guild_config_storage()
+    await ctx.respond(f"Guild config storage message created: {msg.id}", ephemeral=True)
+
+@bot.slash_command(name="config_show", description="Show this server's Admin Bot config")
+async def config_show(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    cfg = get_guild_config(ctx.guild) or {}
+    text = json.dumps(cfg, indent=2)
+    if len(text) > 1900:
+        text = text[:1900] + "\n...[truncated]"
+    await ctx.respond(f"```json\n{text}\n```", ephemeral=True)
+
+@bot.slash_command(name="setup", description="Configure Admin Bot for this server")
+async def setup(
+    ctx,
+    welcome_channel: discord.Option(discord.TextChannel, "Where welcome/birthday messages go", required=True),
+    storage_channel: discord.Option(discord.TextChannel, "Storage channel for this guild (or same as global)", required=False),
+    birthday_role: discord.Option(discord.Role, "Birthday role", required=False),
+    member_role: discord.Option(discord.Role, "Member join role", required=False),
+    bot_role: discord.Option(discord.Role, "Role given to bots on join", required=False),
+    deadchat_role: discord.Option(discord.Role, "Dead Chat role", required=False),
+    infected_role: discord.Option(discord.Role, "Plague infected role", required=False),
+    active_role: discord.Option(discord.Role, "Active member role", required=False),
+    deadchat_channels: discord.Option(str, "Dead Chat channel IDs (comma separated)", required=False),
+    autodelete_channels: discord.Option(str, "Auto-delete channel IDs (comma separated)", required=False),
+    mod_log_channel: discord.Option(discord.TextChannel, "Mod log thread/channel", required=False),
+    bot_log_channel: discord.Option(discord.TextChannel, "Bot log thread/channel", required=False),
+    prize_drop_channel: discord.Option(discord.TextChannel, "Prize drop channel", required=False),
+):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.respond("Admin only.", ephemeral=True)
+    cfg = ensure_guild_config(ctx.guild)
+    cfg["welcome_channel_id"] = welcome_channel.id
+    if storage_channel:
+        cfg["storage_channel_id"] = storage_channel.id
+    if birthday_role:
+        cfg["birthday_role_id"] = birthday_role.id
+    if member_role:
+        cfg["member_join_role_id"] = member_role.id
+    if bot_role:
+        cfg["bot_join_role_id"] = bot_role.id
+    if deadchat_role:
+        cfg["dead_chat_role_id"] = deadchat_role.id
+    if infected_role:
+        cfg["infected_role_id"] = infected_role.id
+    if active_role:
+        cfg["active_role_id"] = active_role.id
+    if deadchat_channels:
+        try:
+            cfg["dead_chat_channel_ids"] = [int(x.strip()) for x in deadchat_channels.split(",") if x.strip().isdigit()]
+        except:
+            pass
+    if autodelete_channels:
+        try:
+            cfg["auto_delete_channel_ids"] = [int(x.strip()) for x in autodelete_channels.split(",") if x.strip().isdigit()]
+        except:
+            pass
+    if mod_log_channel:
+        cfg["mod_log_channel_id"] = mod_log_channel.id
+    if bot_log_channel:
+        cfg["bot_log_channel_id"] = bot_log_channel.id
+    if prize_drop_channel:
+        cfg["prize_drop_channel_id"] = prize_drop_channel.id
+    await save_guild_config_storage()
+    await log_to_bot_channel(f"[CONFIG] Setup updated for guild {ctx.guild.id} by {ctx.author.mention}.")
+    await ctx.respond("Configuration saved for this server.", ephemeral=True)
     
 @bot.slash_command(name="say", description="Make the bot say something right here")
 async def say(ctx, message: discord.Option(str, "Message to send", required=True)):
