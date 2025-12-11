@@ -220,7 +220,8 @@ async def flush_startup_logs():
             ready_lines.append(entry)
         else:
             early.append(entry)
-    parts = ["---------------------------- STARTUP LOGS ----------------------------"]
+    parts = ["---------------------------- STARTUP LOGS ----------------------------",
+    ""]
     parts.extend(early)
     basic_line = None
     if report_entry:
@@ -235,7 +236,6 @@ async def flush_startup_logs():
             while trimmed and trimmed[-1] == "":
                 trimmed.pop()
         if trimmed:
-            parts.append("")
             parts.extend(trimmed)
     if watcher_lines:
         parts.append("")
