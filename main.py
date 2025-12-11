@@ -152,9 +152,6 @@ plague_scheduled: list[dict] = []
 plague_storage_message_id: int | None = None
 infected_members: dict[int, str] = {}
 
-startup_logging_done: bool = False
-startup_log_buffer: list[str] = []
-
 
 ############### HELPER FUNCTIONS ###############
 async def debug_scan_storage_channel(limit: int = 20) -> str:
@@ -179,9 +176,6 @@ async def log_to_thread(content: str):
         pass
 
 async def log_to_bot_channel(content: str):
-    if not startup_logging_done:
-        startup_log_buffer.append(content)
-        return
     if BOT_LOG_THREAD_ID == 0:
         return await log_to_thread(f"[BOT] {content}")
     channel = bot.get_channel(BOT_LOG_THREAD_ID)
@@ -353,8 +347,6 @@ async def run_all_inits_with_logging():
         problems.append("Runtime system checks failed; see logs for details.")
         await log_exception("check_runtime_systems", e)
     lines = []
-    lines.append("Startup check report:")
-    lines.append("")
     lines.append("[STORAGE]")
     if storage["STICKY"]:
         lines.append("`✅` Sticky storage")
@@ -1281,10 +1273,9 @@ async def on_ready():
     print(f"{bot.user} online!")
     bot.add_view(GameNotificationView())
 
-    global startup_logging_done, startup_log_buffer
-
-    startup_logging_done = False
-    startup_log_buffer = []
+    await log_to_bot_channel(
+        "---------------------------- STARTUP LOGS ----------------------------"
+    )
 
     await run_all_inits_with_logging()
     await init_last_activity_storage()
@@ -1306,17 +1297,6 @@ async def on_ready():
 
     await log_to_bot_channel("[STARTUP] All systems passed storage and runtime checks.")
     await log_to_bot_channel(f"[ACTIVITY] Loaded last activity for {len(last_activity)} member(s).")
-
-    all_text = "\n".join(startup_log_buffer)
-    if len(all_text) > 1900:
-        all_text = all_text[:1900]
-
-    startup_logging_done = True
-    startup_log_buffer = []
-
-    await log_to_bot_channel(
-        "---------------------------- STARTUP LOGS ----------------------------\n" + all_text
-    )
 
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
