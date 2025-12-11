@@ -152,6 +152,9 @@ plague_scheduled: list[dict] = []
 plague_storage_message_id: int | None = None
 infected_members: dict[int, str] = {}
 
+startup_logging_done: bool = False
+startup_log_buffer: list[str] = []
+
 
 ############### HELPER FUNCTIONS ###############
 async def debug_scan_storage_channel(limit: int = 20) -> str:
@@ -176,6 +179,9 @@ async def log_to_thread(content: str):
         pass
 
 async def log_to_bot_channel(content: str):
+    if not startup_logging_done:
+        startup_log_buffer.append(content)
+        return
     if BOT_LOG_THREAD_ID == 0:
         return await log_to_thread(f"[BOT] {content}")
     channel = bot.get_channel(BOT_LOG_THREAD_ID)
@@ -1289,6 +1295,20 @@ async def on_ready():
     bot.add_view(GameNotificationView())
     await run_all_inits_with_logging()
     await log_to_bot_channel(f"Bot ready as {bot.user} in {len(bot.guilds)} guild(s).")
+
+    global startup_logging_done, startup_log_buffer
+    try:
+        channel = bot.get_channel(BOT_LOG_THREAD_ID) if BOT_LOG_THREAD_ID != 0 else None
+        if channel and startup_log_buffer:
+            big_text = "---------------------------- STARTUP LOGS ----------------------------\n" + "\n".join(startup_log_buffer)
+            if len(big_text) > 1900:
+                big_text = big_text[:1900]
+            await channel.send(big_text)
+    except Exception:
+        pass
+    startup_logging_done = True
+    startup_log_buffer = []
+
     bot.loop.create_task(twitch_watcher())
     bot.loop.create_task(infected_watcher())
     bot.loop.create_task(member_join_watcher())
