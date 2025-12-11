@@ -88,7 +88,7 @@ WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
 STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
 MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
 BOT_LOG_THREAD_ID = int(os.getenv("BOT_LOG_THREAD_ID", "0"))
-TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID"))
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
 PRIZE_DROP_CHANNEL_ID = int(os.getenv("PRIZE_DROP_CHANNEL_ID", "0"))
 AUTO_DELETE_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("AUTO_DELETE_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
 DEAD_CHAT_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("DEAD_CHAT_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
@@ -308,7 +308,7 @@ async def check_runtime_systems():
     check_channel_permissions(STORAGE_CHANNEL_ID, "STORAGE_CHANNEL", "CHANNELS", need_manage=True)
     check_channel_permissions(WELCOME_CHANNEL_ID, "WELCOME_CHANNEL", "CHANNELS")
     check_channel_permissions(BOT_LOG_THREAD_ID, "BOT_LOG_CHANNEL", "CHANNELS")
-    check_channel_permissions(TWITCH_ANNOUNCE_CHANNEL_ID, "TWITCH_ANNOUNCE_CHANNEL", "CHANNELS")
+    check_channel_permissions(WELCOME_CHANNEL_ID, "TWITCH_ANNOUNCE_CHANNEL", "CHANNELS")
     for cid in DEAD_CHAT_CHANNEL_IDS:
         check_channel_permissions(cid, f"DEAD_CHAT_CHANNEL_{cid}", "DEAD_CHAT_CHANNELS", need_manage=True)
     for cid in AUTO_DELETE_CHANNEL_IDS:
@@ -326,7 +326,7 @@ async def check_runtime_systems():
         role = main_guild.get_role(role_id)
         if role is None:
             fail("ROLES", f"{label}: role {role_id} not found in main guild")
-    if TWITCH_CHANNELS and (not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET or TWITCH_ANNOUNCE_CHANNEL_ID == 0):
+    if TWITCH_CHANNELS and (not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET or WELCOME_CHANNEL_ID == 0):
         fail("TWITCH_CONFIG", "TWITCH_CONFIG: missing client id/secret or announce channel")
     return problems, results
 
@@ -1232,9 +1232,9 @@ class GameNotificationSelectView(discord.ui.View):
 ############### BACKGROUND TASKS & SCHEDULERS ###############
 async def twitch_watcher():
     await bot.wait_until_ready()
-    if not TWITCH_ANNOUNCE_CHANNEL_ID or not TWITCH_CHANNELS:
+    if not WELCOME_CHANNEL_ID or not TWITCH_CHANNELS:
         return
-    ch = bot.get_channel(TWITCH_ANNOUNCE_CHANNEL_ID)
+    ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if not ch:
         return
     while not bot.is_closed():
