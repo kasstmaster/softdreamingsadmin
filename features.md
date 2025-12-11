@@ -285,51 +285,27 @@ Cleans old Dead Chat announcement messages when a new one fires.
 # COMPLETE FEATURE SUMMARY
 
 Welcome system  
-
 Boost announcements  
-
 Birthday announcements  
-
 Delayed role assignment for new members  
-
 Bot-join role assignment  
-
 Kick/ban/leave logging  
-
 Active member tracking system  
-
 Dead Chat role system with steal mechanic  
-
 Idle detection per channel  
-
 Dead Chat cooldown system  
-
 Dead Chat win announcements  
-
 Dead Chat plague system (one scheduled infection window; first qualifying Dead Chat steal after trigger hour becomes infected)  
-
 Infection role & expiration  
-
 Prize drop system (Movie / Nitro / Steam)  
-
 Scheduled prize system (date-based, triggered by Dead Chat)  
-
 Prize claim UI  
-
 Twitch live tracking and announcements  
-
 Twitch OAuth token refresh  
-
 Sticky message system with auto-repost  
-
 Game Notification dropdown UI  
-
 Auto delete channels with exceptions  
-
 Persistent storage architecture using hidden channel messages  
-
 Admin commands for repairing/initializing storage  
-
 Admin message edit & say tools  
-
 Background workers for Twitch, join role, activity removal, infection expiry  
