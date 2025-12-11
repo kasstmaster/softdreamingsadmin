@@ -108,7 +108,7 @@ MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July",
 MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
 PRIZE_DEFS = {"Movie Request": "Common", "Month of Nitro Basic": "Uncommon", "Steam Gift Card": "Rare"}
 
-BIRTHDAY_TEXT = "<a:pepebirthday:1296553298895310971> It's {mention}'s birthday!\n-# Add your own </set:1440919374310408234> @everyone"
+BIRTHDAY_TEXT = "<a:pepebirthday:1296553298895310971> It's {mention}'s birthday!\n-# Add your own </set:1440919374310408234> — @everyone"
 TWITCH_LIVE_MESSAGE = "{name} is live on Twitch ┃ https://twitch.tv/{name}\n-# @everyone"
 DEADCHAT_STEAL_MESSAGE = "{mention} has stolen the {role} role after {minutes}+ minutes of silence.\n-# There's a random chance to win prizes with this role.\n-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
 PLAGUE_OUTBREAK_MESSAGE = "**PLAGUE OUTBREAK**\n-# The sickness has chosen its host.\n-# {mention} bears the infection, binding the plague and ending today’s contagion.\n-# Those who claim Dead Chat after this moment will not be touched by the disease.\n-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
