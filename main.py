@@ -245,6 +245,8 @@ async def flush_startup_logs():
         parts.append("")
         parts.extend(startup_summaries)
         parts.extend(activity_loaded_lines)
+        if basic_line or ready_lines:
+            parts.append("")
         if basic_line:
             parts.append(basic_line)
         parts.extend(ready_lines)
