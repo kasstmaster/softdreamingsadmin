@@ -1705,8 +1705,15 @@ async def say(ctx, message: discord.Option(str, "Message to send", required=True
     await ctx.channel.send(message.replace("\\n", "\n"))
     await ctx.respond("Sent!", ephemeral=True)
 
-@bot.slash_command(name="editbotmsg", description="Edit a bot message in this channel with 4 lines")
-async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, line4: str,):
+@bot.slash_command(name="editbotmsg", description="Edit a bot message in this channel with up to 4 lines")
+async def editbotmsg(
+    ctx,
+    message_id: discord.Option(str, "Message ID", required=True),
+    line1: discord.Option(str, "Line 1 (optional)", required=False) = None,
+    line2: discord.Option(str, "Line 2 (optional)", required=False) = None,
+    line3: discord.Option(str, "Line 3 (optional)", required=False) = None,
+    line4: discord.Option(str, "Line 4 (optional)", required=False) = None,
+):
     if not (ctx.author.guild_permissions.administrator or ctx.guild.owner_id == ctx.author.id):
         return await ctx.respond("Admin only.", ephemeral=True)
     try:
@@ -1723,7 +1730,19 @@ async def editbotmsg(ctx, message_id: str, line1: str, line2: str, line3: str, l
         return await ctx.respond("Error fetching that message.", ephemeral=True)
     if msg.author.id != bot.user.id:
         return await ctx.respond("That message was not sent by me.", ephemeral=True)
-    new_content = "\n".join([line1, line2, line3, line4])
+
+    existing_lines = msg.content.split("\n")
+    while len(existing_lines) < 4:
+        existing_lines.append("")
+
+    new_lines = [
+        line1 if line1 is not None else existing_lines[0],
+        line2 if line2 is not None else existing_lines[1],
+        line3 if line3 is not None else existing_lines[2],
+        line4 if line4 is not None else existing_lines[3],
+    ]
+    new_content = "\n".join(new_lines)
+
     await msg.edit(content=new_content)
     await ctx.respond("Message updated.", ephemeral=True)
 
