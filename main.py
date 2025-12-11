@@ -1304,23 +1304,19 @@ async def activity_inactive_watcher():
 async def on_ready():
     print(f"{bot.user} is online!")
     bot.add_view(GameNotificationView())
-
     await run_all_inits_with_logging()
     await init_last_activity_storage()
-    await log_to_bot_channel(f"Bot ready as {bot.user} in {len(bot.guilds)} guild(s).")
-
+    await log_to_bot_channel("Bot ready as {} in {} guild(s).".format(bot.user, len(bot.guilds)))
     bot.loop.create_task(twitch_watcher())
     await log_to_bot_channel("[TWITCH] watcher started.")
-
     bot.loop.create_task(infected_watcher())
     await log_to_bot_channel("[PLAGUE] infected_watcher started.")
-
     bot.loop.create_task(member_join_watcher())
     await log_to_bot_channel("[MEMBERJOIN] watcher started.")
-
     bot.loop.create_task(activity_inactive_watcher())
     await log_to_bot_channel("[ACTIVITY] activity_inactive_watcher started.")
-
+    await log_to_bot_channel("[STARTUP] All systems passed storage and runtime checks.")
+    await log_to_bot_channel(f"[ACTIVITY] Loaded last activity for {len(last_activity)} member(s).")
     global startup_logging_done, startup_log_buffer
     try:
         channel = bot.get_channel(BOT_LOG_THREAD_ID) if BOT_LOG_THREAD_ID != 0 else None
@@ -1338,7 +1334,7 @@ async def on_ready():
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
         await initialize_dead_chat()
- 
+
 @bot.event
 async def on_member_update(before, after):
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
