@@ -411,35 +411,12 @@ async def run_all_inits_with_logging():
         lines.append("[DETAILS]")
         for p in problems:
             lines.append(f"`⚠️` **Detail** — {p}")
-    else:
-        lines.append("")
-        lines.append("All systems passed basic storage and runtime checks.")
     text = "\n".join(lines)
     if len(text) > 1900:
         text = text[:1900]
     await log_to_bot_channel(text)
     if problems:
         await log_to_bot_channel(f"[STARTUP] {len(problems)} problems detected, see report above.")
-    else:
-        await log_to_bot_channel("[STARTUP] All systems passed storage and runtime checks.")
-
-async def find_storage_message(prefix: str) -> discord.Message | None:
-    if STORAGE_CHANNEL_ID == 0:
-        await log_to_bot_channel(f"find_storage_message: STORAGE_CHANNEL_ID is 0 for {prefix}")
-        return None
-    ch = bot.get_channel(STORAGE_CHANNEL_ID)
-    if not isinstance(ch, discord.TextChannel):
-        await log_to_bot_channel(f"find_storage_message: storage channel invalid for {prefix}")
-        return None
-    try:
-        async for msg in ch.history(limit=200, oldest_first=False):
-            if msg.content.startswith(prefix):
-                return msg
-    except Exception as e:
-        await log_to_bot_channel(f"find_storage_message error for {prefix}: {e}")
-        return None
-    await log_to_bot_channel(f"find_storage_message: no storage message found for {prefix}")
-    return None
 
 async def init_sticky_storage():
     global sticky_storage_message_id
@@ -1013,7 +990,6 @@ async def init_last_activity_storage():
                 last_activity[int(mid_str)] = ts
             except:
                 pass
-        await log_to_bot_channel(f"[ACTIVITY] Loaded last activity for {len(last_activity)} member(s).")
     except Exception as e:
         await log_to_bot_channel(f"init_last_activity_storage failed: {e}")
         last_activity = {}
@@ -1311,7 +1287,8 @@ async def on_ready():
     startup_log_buffer = []
 
     await run_all_inits_with_logging()
-    await run_startup_checks()
+    await init_last_activity_storage()
+
     await log_to_bot_channel("[STARTUP] All systems passed storage and runtime checks.")
     await log_to_bot_channel(f"[ACTIVITY] Loaded last activity for {len(last_activity)} member(s).")
 
@@ -1340,6 +1317,11 @@ async def on_ready():
 
     startup_logging_done = True
     startup_log_buffer = []
+
+    if sticky_storage_message_id is None:
+        print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
+    else:
+        await initialize_dead_chat()
 
     await log_to_bot_channel("All systems passed basic storage and runtime checks.")
     await log_to_bot_channel(f"Bot ready as {bot.user} in {len(bot.guilds)} guild(s).")
