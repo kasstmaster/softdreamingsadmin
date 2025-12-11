@@ -77,48 +77,48 @@ intents.voice_states = True
 DEBUG_GUILD_ID = int(os.getenv("DEBUG_GUILD_ID"))
 bot = discord.Bot(intents=intents, debug_guilds=[DEBUG_GUILD_ID])
 
-WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
+ACTIVE_ROLE_ID = int(os.getenv("ACTIVE_ROLE_ID", "0"))
 BIRTHDAY_ROLE_ID = int(os.getenv("BIRTHDAY_ROLE_ID"))
-WELCOME_TEXT = os.getenv("WELCOME_TEXT")
-BOOST_TEXT = os.getenv("BOOST_TEXT")
-BIRTHDAY_TEXT = os.getenv("BIRTHDAY_TEXT")
+DEAD_CHAT_ROLE_ID = int(os.getenv("DEAD_CHAT_ROLE_ID", "0"))
+INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
 MEMBER_JOIN_ROLE_ID = int(os.getenv("MEMBER_JOIN_ROLE_ID"))
 BOT_JOIN_ROLE_ID = int(os.getenv("BOT_JOIN_ROLE_ID"))
+
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID"))
+STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
+MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
+BOT_LOG_THREAD_ID = int(os.getenv("BOT_LOG_THREAD_ID", "0"))
+TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID"))
+PRIZE_DROP_CHANNEL_ID = int(os.getenv("PRIZE_DROP_CHANNEL_ID", "0"))
 AUTO_DELETE_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("AUTO_DELETE_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
-DELETE_DELAY_SECONDS = int(os.getenv("DELETE_DELAY_SECONDS"))
+DEAD_CHAT_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("DEAD_CHAT_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
 
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 TWITCH_CHANNELS = [c.strip().lower() for c in os.getenv("TWITCH_CHANNELS", "").split(",") if c.strip()]
-TWITCH_ANNOUNCE_CHANNEL_ID = int(os.getenv("TWITCH_ANNOUNCE_CHANNEL_ID"))
-TWITCH_EMOJI = os.getenv("TWITCH_EMOJI")
 
-MOD_LOG_THREAD_ID = int(os.getenv("MOD_LOG_THREAD_ID"))
-BOT_LOG_THREAD_ID = int(os.getenv("BOT_LOG_THREAD_ID", "0"))
-
-ACTIVE_ROLE_ID = int(os.getenv("ACTIVE_ROLE_ID", "0"))
+DELETE_DELAY_SECONDS = int(os.getenv("DELETE_DELAY_SECONDS", "3600"))
 INACTIVE_DAYS_THRESHOLD = int(os.getenv("INACTIVE_DAYS_THRESHOLD", "14"))
-
-DEAD_CHAT_ROLE_ID = int(os.getenv("DEAD_CHAT_ROLE_ID", "0"))
-DEAD_CHAT_CHANNEL_IDS = [int(x.strip()) for x in os.getenv("DEAD_CHAT_CHANNEL_IDS", "").split(",") if x.strip().isdigit()]
 DEAD_CHAT_IDLE_SECONDS = int(os.getenv("DEAD_CHAT_IDLE_SECONDS", "600"))
 DEAD_CHAT_COOLDOWN_SECONDS = int(os.getenv("DEAD_CHAT_COOLDOWN_SECONDS", "0"))
+PRIZE_PLAGUE_TRIGGER_HOUR_UTC = int(os.getenv("PRIZE_PLAGUE_TRIGGER_HOUR_UTC", "12"))
+
 IGNORE_MEMBER_IDS = {int(x.strip()) for x in os.getenv("IGNORE_MEMBER_IDS", "").split(",") if x.strip().isdigit()}
 MONTH_CHOICES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 MONTH_TO_NUM = {name: i for i, name in enumerate(MONTH_CHOICES, start=1)}
+PRIZE_DEFS = {"Movie Request": "Common", "Month of Nitro Basic": "Uncommon", "Steam Gift Card": "Rare"}
 
-PRIZE_PLAGUE_TRIGGER_HOUR_UTC = int(os.getenv("PRIZE_PLAGUE_TRIGGER_HOUR_UTC", "12"))
-INFECTED_ROLE_ID = int(os.getenv("INFECTED_ROLE_ID", "0"))
+BIRTHDAY_TEXT = "<a:pepebirthday:1296553298895310971> It's {mention}'s birthday!\n-# Add your own </set:1440919374310408234> @everyone"
+TWITCH_LIVE_MESSAGE = "{name} is live on Twitch ┃ https://twitch.tv/{name}\n-# @everyone"
+DEADCHAT_STEAL_MESSAGE = "{mention} has stolen the {role} role after {minutes}+ minutes of silence.\n-# There's a random chance to win prizes with this role.\n-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
+PLAGUE_OUTBREAK_MESSAGE = "**PLAGUE OUTBREAK**\n-# The sickness has chosen its host.\n-# {mention} bears the infection, binding the plague and ending today’s contagion.\n-# Those who claim Dead Chat after this moment will not be touched by the disease.\n-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
+PRIZE_ANNOUNCE_MESSAGE = "{winner} has won a **{gift}** with {role}!\n-# *Drop Rate: {rarity}*"
+PRIZE_CLAIM_MESSAGE = "You claimed a **{gift}**!"
+GAME_NOTIF_OPEN_TEXT = "Choose the game notifications you want:"
+GAME_NOTIF_NO_CHANGES = "No changes."
+GAME_NOTIF_ADDED_PREFIX = "Added: "
+GAME_NOTIF_REMOVED_PREFIX = "Removed: "
 
-STORAGE_CHANNEL_ID = int(os.getenv("STORAGE_CHANNEL_ID", "0"))
-
-PRIZE_DROP_CHANNEL_ID = int(os.getenv("PRIZE_DROP_CHANNEL_ID", "0"))
-PRIZE_EMOJI = os.getenv("PRIZE_EMOJI", "")
-_raw_prize_defs = os.getenv("PRIZE_DEFS", "")
-if _raw_prize_defs:
-    PRIZE_DEFS = json.loads(_raw_prize_defs)
-else:
-    PRIZE_DEFS = {}
 
 ############### GLOBAL STATE / STORAGE ###############
 twitch_access_token: str | None = None
@@ -879,23 +879,17 @@ async def handle_dead_chat_message(message: discord.Message):
                     pass
 
     if triggered_plague:
-        plague_text = (
-            f"**PLAGUE OUTBREAK**\n"
-            f"-# The sickness has chosen its host.\n"
-            f"-# {message.author.mention} bears the infection, binding the plague and ending today’s contagion.\n"
-            f"-# Those who claim Dead Chat after this moment will not be touched by the disease.\n"
-            f"-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
-        )
+        plague_text = PLAGUE_OUTBREAK_MESSAGE.format(mention=message.author.mention)
         notice = await message.channel.send(plague_text)
         await log_to_bot_channel(
             f"[PLAGUE] {message.author.mention} infected on {today_str} in {message.channel.mention}."
         )
     else:
         minutes = DEAD_CHAT_IDLE_SECONDS // 60
-        notice_text = (
-            f"{message.author.mention} has stolen the {role.mention} role after {minutes}+ minutes of silence.\n"
-            f"-# There's a random chance to win prizes with this role.\n"
-            f"-# [Learn More](https://discord.com/channels/1205041211610501120/1447330327923265586)"
+        notice_text = DEADCHAT_STEAL_MESSAGE.format(
+            mention=message.author.mention,
+            role=role.mention,
+            minutes=minutes
         )
         notice = await message.channel.send(notice_text)
         await log_to_bot_channel(
@@ -1140,11 +1134,19 @@ class BasePrizeView(discord.ui.View):
         role_mention = dead_role.mention if dead_role else "the Dead Chat role"
         ch = guild.get_channel(WELCOME_CHANNEL_ID)
         if ch:
-            await ch.send(f"{PRIZE_EMOJI} {interaction.user.mention} has won a **{self.gift_title}** with {role_mention}!\n-# *Drop Rate: {self.rarity}*")
+            msg = PRIZE_ANNOUNCE_MESSAGE.format(
+                emoji=PRIZE_EMOJI,
+                winner=interaction.user.mention,
+                gift=self.gift_title,
+                role=role_mention,
+                rarity=self.rarity
+            )
+            await ch.send(msg)
         await log_to_bot_channel(
             f"[PRIZE] {interaction.user.mention} claimed prize '{self.gift_title}' (rarity {self.rarity})."
         )
-        await interaction.response.send_message(f"You claimed a **{self.gift_title}**!", ephemeral=True)
+        claim_text = PRIZE_CLAIM_MESSAGE.format(gift=self.gift_title)
+        await interaction.response.send_message(claim_text, ephemeral=True)
 
 class MoviePrizeView(BasePrizeView):
     gift_title = "Movie Request"
@@ -1191,11 +1193,11 @@ class GameNotificationSelect(discord.ui.Select):
                     removed.append(role.name)
         text = ""
         if added:
-            text += "Added: " + ", ".join(added) + "\n"
+            text += GAME_NOTIF_ADDED_PREFIX + ", ".join(added) + "\n"
         if removed:
-            text += "Removed: " + ", ".join(removed) + "\n"
+            text += GAME_NOTIF_REMOVED_PREFIX + ", ".join(removed) + "\n"
         if not text:
-            text = "No changes."
+            text = GAME_NOTIF_NO_CHANGES
         if added or removed:
             await log_to_bot_channel(
                 f"[GAMES] {member.mention} updated game notif roles. Added: {', '.join(added) or 'none'}; Removed: {', '.join(removed) or 'none'}."
@@ -1213,7 +1215,7 @@ class GameNotificationView(discord.ui.View):
     )
     async def open_menu(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.send_message(
-            "Choose the game notifications you want:",
+            GAME_NOTIF_OPEN_TEXT,
             view=GameNotificationSelectView(),
             ephemeral=True
         )
@@ -1242,9 +1244,8 @@ async def twitch_watcher():
                 is_live = name in streams
                 was_live = twitch_live_state.get(name, False)
                 if is_live and not was_live:
-                    await ch.send(
-                        f"{TWITCH_EMOJI} {name} is live ┃ https://twitch.tv/{name}\n-# @everyone"
-                    )
+                    msg = TWITCH_LIVE_MESSAGE.format(name=name)
+                    await ch.send(msg)
                     twitch_live_state[name] = True
                     await save_twitch_state()
                     await log_to_bot_channel(f"[TWITCH] {name} went LIVE.")
@@ -1417,12 +1418,6 @@ async def on_member_update(before, after):
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if not ch:
         return
-    if before.premium_since is None and after.premium_since:
-        if BOOST_TEXT:
-            await ch.send(BOOST_TEXT.replace("{mention}", after.mention))
-            await log_to_bot_channel(
-                f"[BOOST] {after.mention} started boosting."
-            )
     new_roles = set(after.roles) - set(before.roles)
     for role in new_roles:
         if role.id == BIRTHDAY_ROLE_ID:
@@ -1467,7 +1462,6 @@ async def on_message(message: discord.Message):
             bot.loop.create_task(delete_later())
 
 @bot.event
-@bot.event
 async def on_member_join(member: discord.Member):
     ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if member.bot:
@@ -1477,8 +1471,6 @@ async def on_member_join(member: discord.Member):
             if role:
                 await member.add_roles(role)
         return
-    if ch and WELCOME_TEXT:
-        await ch.send(WELCOME_TEXT.replace("{mention}", member.mention))
     await log_to_bot_channel(
         f"[JOIN] Member joined: {member.mention} (ID {member.id}) in guild {member.guild.id}."
     )
@@ -1932,7 +1924,14 @@ async def prize_announce(ctx, member: discord.Option(discord.Member, required=Tr
     dead_role = ctx.guild.get_role(DEAD_CHAT_ROLE_ID)
     role_mention = dead_role.mention if dead_role else "the Dead Chat role"
     rarity = PRIZE_DEFS[prize]
-    await ctx.channel.send(f"{PRIZE_EMOJI} {member.mention} has won a **{prize}** with {role_mention}!\n-# *Drop Rate: {rarity}*")
+    msg = PRIZE_ANNOUNCE_MESSAGE.format(
+        emoji=PRIZE_EMOJI,
+        winner=member.mention,
+        gift=prize,
+        role=role_mention,
+        rarity=rarity
+    )
+    await ctx.channel.send(msg)
     await log_to_bot_channel(
         f"[PRIZE] Manual prize announcement: {member.mention} → '{prize}' (rarity {rarity}) by {ctx.author.mention}."
     )
