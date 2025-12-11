@@ -192,6 +192,46 @@ async def log_to_bot_channel(content: str):
     except Exception:
         pass
 
+async def flush_startup_logs():
+    if not startup_log_buffer:
+        return
+    if BOT_LOG_THREAD_ID != 0:
+        channel = bot.get_channel(BOT_LOG_THREAD_ID)
+    else:
+        channel = bot.get_channel(MOD_LOG_THREAD_ID) if MOD_LOG_THREAD_ID != 0 else None
+    if not channel:
+        return
+    early = []
+    watcher_lines = []
+    report_entries = []
+    startup_summaries = []
+    ready_lines = []
+    for entry in startup_log_buffer:
+        if "Startup check report:" in entry:
+            report_entries.append(entry)
+        elif entry.startswith("[TWITCH] watcher started") or entry.startswith("[PLAGUE] infected_watcher started") or entry.startswith("[MEMBERJOIN] watcher started") or entry.startswith("[ACTIVITY] activity_inactive_watcher started"):
+            watcher_lines.append(entry)
+        elif entry.startswith("[STARTUP] "):
+            startup_summaries.append(entry)
+        elif entry.startswith("Bot ready as "):
+            ready_lines.append(entry)
+        else:
+            early.append(entry)
+    parts = ["---------------------------- STARTUP LOGS ----------------------------"]
+    parts.extend(early)
+    if watcher_lines:
+        parts.append("")
+        parts.extend(watcher_lines)
+    if report_entries:
+        parts.append("")
+        parts.extend(report_entries)
+    parts.extend(startup_summaries)
+    parts.extend(ready_lines)
+    text = "\n".join(parts)
+    if len(text) > 1900:
+        text = text[:1900]
+    await channel.send(text)
+
 async def log_exception(tag: str, exc: Exception):
     tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     text = f"{tag}: {exc}\n{tb}"
@@ -1309,28 +1349,16 @@ async def on_ready():
     print(f"{bot.user} is online!")
     bot.add_view(GameNotificationView())
     await run_all_inits_with_logging()
-    await log_to_bot_channel(f"Bot ready as {bot.user} in {len(bot.guilds)} guild(s).")
-
     global startup_logging_done, startup_log_buffer
-    try:
-        channel = bot.get_channel(BOT_LOG_THREAD_ID) if BOT_LOG_THREAD_ID != 0 else None
-        if channel and startup_log_buffer:
-            big_text = "---------------------------- STARTUP LOGS ----------------------------\n" + "\n".join(startup_log_buffer)
-            if len(big_text) > 1900:
-                big_text = big_text[:1900]
-            await channel.send(big_text)
-    except Exception:
-        pass
-    startup_logging_done = True
-    startup_log_buffer = []
-
     await init_last_activity_storage()
-
     bot.loop.create_task(twitch_watcher())
     bot.loop.create_task(infected_watcher())
     bot.loop.create_task(member_join_watcher())
     bot.loop.create_task(activity_inactive_watcher())
-
+    await log_to_bot_channel(f"Bot ready as {bot.user} in {len(bot.guilds)} guild(s).")
+    await flush_startup_logs()
+    startup_logging_done = True
+    startup_log_buffer = []
     if sticky_storage_message_id is None:
         print("STORAGE NOT INITIALIZED — Run /sticky_init, /prize_init and /deadchat_init")
     else:
