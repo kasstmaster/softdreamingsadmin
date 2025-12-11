@@ -357,60 +357,60 @@ async def run_all_inits_with_logging():
     lines.append("")
     lines.append("[STORAGE]")
     if storage["STICKY"]:
-        lines.append("✅ Sticky storage")
+        lines.append("'✅' Sticky storage")
     else:
-        lines.append("⚠️ **Sticky storage** — STICKY_DATA storage message is missing or unreadable, so sticky messages cannot be loaded or saved.")
+        lines.append("'⚠️' **Sticky storage** — STICKY_DATA storage message is missing or unreadable, so sticky messages cannot be loaded or saved.")
     if storage["DEADCHAT"]:
-        lines.append("✅ Dead Chat storage")
+        lines.append("'✅' Dead Chat storage")
     else:
-        lines.append("⚠️ **Dead Chat storage** — DEADCHAT_DATA storage message is missing or unreadable, so Dead Chat idle timestamps cannot be persisted.")
+        lines.append("'⚠️' **Dead Chat storage** — DEADCHAT_DATA storage message is missing or unreadable, so Dead Chat idle timestamps cannot be persisted.")
     if storage["DEADCHAT_STATE"]:
-        lines.append("✅ Dead Chat state")
+        lines.append("'✅' Dead Chat state")
     else:
-        lines.append("⚠️ **Dead Chat state** — DEADCHAT_STATE storage message is missing or unreadable, so current holder and state cannot be persisted.")
+        lines.append("'⚠️' **Dead Chat state** — DEADCHAT_STATE storage message is missing or unreadable, so current holder and state cannot be persisted.")
     if storage["PLAGUE"]:
-        lines.append("✅ Plague storage")
+        lines.append("'✅' Plague storage")
     else:
-        lines.append("⚠️ **Plague storage** — PLAGUE_DATA storage message is missing or unreadable, so plague schedule and infected members cannot be persisted.")
+        lines.append("'⚠️' **Plague storage** — PLAGUE_DATA storage message is missing or unreadable, so plague schedule and infected members cannot be persisted.")
     if storage["PRIZE"]:
-        lines.append("✅ Prize storage (movie/nitro/steam)")
+        lines.append("'✅' Prize storage (movie/nitro/steam)")
     else:
-        lines.append("⚠️ **Prize storage** — One or more PRIZE_* storage messages are missing or unreadable, so scheduled prizes cannot be persisted.")
+        lines.append("'⚠️' **Prize storage** — One or more PRIZE_* storage messages are missing or unreadable, so scheduled prizes cannot be persisted.")
     if storage["MEMBERJOIN"]:
-        lines.append("✅ Member-join storage")
+        lines.append("'✅' Member-join storage")
     else:
-        lines.append("⚠️ **Member-join storage** — MEMBERJOIN_DATA storage message is missing or unreadable, so delayed member roles cannot be persisted.")
+        lines.append("'⚠️' **Member-join storage** — MEMBERJOIN_DATA storage message is missing or unreadable, so delayed member roles cannot be persisted.")
     if storage["TWITCH_STATE"]:
-        lines.append("✅ Twitch state storage")
+        lines.append("'✅' Twitch state storage")
     else:
-        lines.append("⚠️ **Twitch state storage** — TWITCH_STATE storage message is missing or unreadable, so Twitch live/offline state cannot be persisted.")
+        lines.append("'⚠️' **Twitch state storage** — TWITCH_STATE storage message is missing or unreadable, so Twitch live/offline state cannot be persisted.")
     lines.append("")
     lines.append("[RUNTIME CONFIG]")
     if runtime_results.get("CHANNELS", False):
-        lines.append("✅ Channels and basic permissions")
+        lines.append("'✅' Channels and basic permissions")
     else:
-        lines.append("⚠️ **Channels and basic permissions** — One or more required channels are missing or the bot lacks view, send, history, or manage permissions for them.")
+        lines.append("'⚠️' **Channels and basic permissions** — One or more required channels are missing or the bot lacks view, send, history, or manage permissions for them.")
     if runtime_results.get("ROLES", False):
-        lines.append("✅ Required roles present")
+        lines.append("'✅' Required roles present")
     else:
-        lines.append("⚠️ **Required roles present** — One or more required roles are missing from the main guild, so some automations cannot run.")
+        lines.append("'⚠️' **Required roles present** — One or more required roles are missing from the main guild, so some automations cannot run.")
     if runtime_results.get("DEAD_CHAT_CHANNELS", False):
-        lines.append("✅ Dead Chat channels ready")
+        lines.append("'✅' Dead Chat channels ready")
     else:
-        lines.append("⚠️ **Dead Chat channels ready** — One or more Dead Chat channels are missing or have insufficient permissions for idle tracking and role steals.")
+        lines.append("'⚠️' **Dead Chat channels ready** — One or more Dead Chat channels are missing or have insufficient permissions for idle tracking and role steals.")
     if runtime_results.get("AUTO_DELETE", False):
-        lines.append("✅ Auto-delete channels ready")
+        lines.append("'✅' Auto-delete channels ready")
     else:
-        lines.append("⚠️ **Auto-delete channels ready** — One or more auto-delete channels are missing or lack message management permissions.")
+        lines.append("'⚠️' **Auto-delete channels ready** — One or more auto-delete channels are missing or lack message management permissions.")
     if runtime_results.get("TWITCH_CONFIG", False):
-        lines.append("✅ Twitch config and announce channel")
+        lines.append("'✅' Twitch config and announce channel")
     else:
-        lines.append("⚠️ **Twitch config and announce channel** — Twitch client ID/secret or announce channel is misconfigured, so live notifications cannot be sent.")
+        lines.append("'⚠️' **Twitch config and announce channel** — Twitch client ID/secret or announce channel is misconfigured, so live notifications cannot be sent.")
     if problems:
         lines.append("")
         lines.append("[DETAILS]")
         for p in problems:
-            lines.append(f"⚠️ **Detail** — {p}")
+            lines.append(f"'⚠️' **Detail** — {p}")
     else:
         lines.append("")
         lines.append("All systems passed basic storage and runtime checks.")
